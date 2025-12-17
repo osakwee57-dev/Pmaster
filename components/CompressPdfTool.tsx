@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { FileDown, Download, Share2, FileCheck, Loader2, Eye } from 'lucide-react';
+import { FileDown, Download, Share2, FileCheck, Loader2, Eye, Zap, ShieldAlert } from 'lucide-react';
 import { compressPdf, downloadBlob, shareBlob } from '../services/pdfService';
 import PdfPreview from './PdfPreview';
 
@@ -10,6 +10,7 @@ const CompressPdfTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const [compressedBlob, setCompressedBlob] = useState<Blob | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
+  const [compressionRatio, setCompressionRatio] = useState<number>(0);
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selected = e.target.files?.[0];
@@ -17,6 +18,7 @@ const CompressPdfTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       setFile(selected);
       setFilename(selected.name.replace('.pdf', ''));
       setCompressedBlob(null);
+      setCompressionRatio(0);
     } else {
       alert("Please select a valid PDF file.");
     }
@@ -29,6 +31,9 @@ const CompressPdfTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       const buffer = await file.arrayBuffer();
       const resultBlob = await compressPdf(buffer);
       setCompressedBlob(resultBlob);
+      
+      const ratio = ((file.size - resultBlob.size) / file.size) * 100;
+      setCompressionRatio(Math.max(0, ratio));
     } catch (err) {
       console.error(err);
       alert("Compression failed.");
@@ -38,7 +43,7 @@ const CompressPdfTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   };
 
   const getFinalFilename = () => {
-    const base = filename.trim() || `compressed_${file?.name || 'document'}`;
+    const base = filename.trim() || `optimized_${file?.name || 'document'}`;
     return base.toLowerCase().endsWith('.pdf') ? base : `${base}.pdf`;
   };
 
@@ -55,94 +60,114 @@ const CompressPdfTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   return (
     <div className="flex flex-col max-w-2xl mx-auto p-4 space-y-6 pb-20">
       <div className="w-full flex justify-between items-center mb-4">
-        <button onClick={onBack} className="text-blue-600 font-semibold p-2 hover:bg-blue-50 rounded-lg">&larr; Back</button>
-        <h2 className="text-2xl font-bold text-slate-800">Compress PDF</h2>
-        <div className="w-12"></div>
+        <button onClick={onBack} className="text-blue-600 font-black p-2 hover:bg-blue-50 rounded-xl transition-all">← Back</button>
+        <div className="text-right">
+          <h2 className="text-2xl font-black text-slate-900 leading-none">Power Compress</h2>
+          <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest mt-1">75% Target Reduction</p>
+        </div>
       </div>
 
-      <div className="w-full border-2 border-dashed border-slate-300 rounded-[2.5rem] p-8 flex flex-col items-center justify-center bg-white shadow-xl space-y-4">
+      <div className="w-full border-4 border-dashed border-slate-200 rounded-[3rem] p-8 flex flex-col items-center justify-center bg-white shadow-2xl shadow-slate-200/50 space-y-4">
         {file ? (
-          <div className="w-full space-y-4">
-            <div className="flex items-center space-x-4 bg-slate-50 p-6 rounded-3xl border border-slate-100">
-              <div className="p-3 bg-blue-100 rounded-2xl">
-                <FileDown className="w-8 h-8 text-blue-600" />
+          <div className="w-full space-y-6">
+            <div className="flex items-center space-x-4 bg-slate-50 p-6 rounded-[2rem] border border-slate-100">
+              <div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-500/20">
+                <FileDown className="w-8 h-8 text-white" />
               </div>
               <div className="flex-1 overflow-hidden">
-                <p className="font-bold text-slate-800 truncate">{file.name}</p>
-                <p className="text-xs text-slate-500 font-medium">Original: {(file.size / 1024 / 1024).toFixed(2)} MB</p>
+                <p className="font-black text-slate-900 truncate">{file.name}</p>
+                <div className="flex items-center mt-1">
+                  <span className="text-[10px] font-black bg-slate-200 px-2 py-0.5 rounded-full text-slate-600 uppercase">Original</span>
+                  <p className="text-xs text-slate-500 font-bold ml-2">{(file.size / 1024 / 1024).toFixed(2)} MB</p>
+                </div>
               </div>
               <button 
                 onClick={() => { setFile(null); setCompressedBlob(null); }} 
-                className="text-red-500 text-sm font-bold p-2"
+                className="w-10 h-10 bg-red-50 text-red-500 rounded-full flex items-center justify-center active:scale-90 transition-all"
               >
-                Remove
+                <ShieldAlert className="w-5 h-5" />
               </button>
             </div>
             
             <div className="space-y-2">
-              <label className="text-sm font-bold text-slate-600 px-1">Save As Name</label>
+              <label className="text-[10px] font-black uppercase text-slate-400 px-2 tracking-widest">New File Name</label>
               <input 
                 type="text"
                 placeholder="Optimized_File"
                 value={filename}
                 onChange={(e) => setFilename(e.target.value)}
-                className="w-full px-4 py-3 rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none bg-white"
+                className="w-full px-6 py-4 rounded-2xl border-2 border-slate-100 focus:border-blue-500 outline-none bg-slate-50 font-bold text-slate-800 transition-all"
               />
             </div>
           </div>
         ) : (
           <label className="flex flex-col items-center cursor-pointer py-16 w-full">
-            <div className="w-24 h-24 bg-blue-50 rounded-full flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
-              <FileDown className="w-12 h-12 text-blue-600" />
+            <div className="w-28 h-28 bg-blue-50 rounded-full flex items-center justify-center mb-8 shadow-inner">
+              <div className="w-20 h-20 bg-blue-600 rounded-full flex items-center justify-center shadow-xl shadow-blue-500/30">
+                <FileDown className="w-10 h-10 text-white" />
+              </div>
             </div>
-            <p className="text-slate-800 font-black text-xl mb-1">Select PDF</p>
-            <p className="text-slate-400 text-sm font-medium">Tap to browse your documents</p>
+            <p className="text-slate-900 font-black text-2xl mb-2">Select PDF</p>
+            <p className="text-slate-400 text-sm font-bold uppercase tracking-widest">High-Efficiency mode active</p>
             <input type="file" accept="application/pdf" onChange={handleFileUpload} className="hidden" />
           </label>
         )}
+      </div>
+
+      <div className="bg-blue-900 text-white p-6 rounded-[2.5rem] flex items-start space-x-4 shadow-xl">
+        <div className="p-3 bg-blue-500/20 rounded-2xl">
+          <Zap className="w-6 h-6 text-blue-300" />
+        </div>
+        <div>
+          <h4 className="font-black text-sm uppercase tracking-wider">75% Reduction Strategy</h4>
+          <p className="text-blue-200 text-xs font-medium leading-relaxed mt-1">Our engine utilizes object-stream packing and bit-depth optimization to significantly reduce size while preserving core information.</p>
+        </div>
       </div>
 
       {file && !compressedBlob && (
         <button 
           disabled={isProcessing}
           onClick={handleCompress}
-          className="w-full bg-blue-600 text-white py-5 rounded-2xl font-black text-lg shadow-2xl hover:bg-blue-700 transition-all flex items-center justify-center disabled:opacity-70 active:scale-95"
+          className="w-full bg-slate-900 text-white py-6 rounded-[2rem] font-black text-xl shadow-2xl hover:bg-black transition-all flex items-center justify-center disabled:opacity-70 active:scale-95 group"
         >
           {isProcessing ? (
-            <><Loader2 className="w-6 h-6 mr-2 animate-spin" /> Optimizing...</>
+            <><Loader2 className="w-6 h-6 mr-3 animate-spin" /> Compressing...</>
           ) : (
-            'Optimize & Compress'
+            <span className="flex items-center">Apply 75% Target <Zap className="w-5 h-5 ml-2 group-hover:fill-blue-400 transition-all" /></span>
           )}
         </button>
       )}
 
       {compressedBlob && (
-        <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
-          <div className="bg-green-50 border border-green-100 p-6 rounded-3xl flex items-center">
-            <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mr-4">
-              <FileCheck className="w-7 h-7 text-green-600" />
+        <div className="space-y-4 animate-in fade-in slide-in-from-bottom-6 duration-700">
+          <div className="bg-emerald-500 p-8 rounded-[3rem] text-white shadow-2xl relative overflow-hidden">
+            <div className="relative z-10">
+              <div className="flex items-center mb-2">
+                <FileCheck className="w-6 h-6 mr-2" />
+                <p className="font-black uppercase tracking-widest text-xs opacity-80">Compression Success</p>
+              </div>
+              <h3 className="text-4xl font-black mb-1">-{compressionRatio.toFixed(0)}%</h3>
+              <p className="text-emerald-100 font-bold">New size: {(compressedBlob.size / 1024 / 1024).toFixed(2)} MB</p>
             </div>
-            <div>
-              <p className="text-green-900 font-black text-lg">Magic Done!</p>
-              <p className="text-green-700 text-sm font-bold">New size: {(compressedBlob.size / 1024 / 1024).toFixed(2)} MB</p>
-            </div>
+            <FileCheck className="absolute -bottom-10 -right-10 w-48 h-48 opacity-10" />
           </div>
+
           <div className="grid grid-cols-2 gap-4">
             <button 
               onClick={() => setShowPreview(true)}
-              className="col-span-2 flex items-center justify-center bg-indigo-600 text-white py-4 rounded-xl font-bold shadow-lg hover:bg-indigo-700 active:scale-95 transition-all"
+              className="col-span-2 flex items-center justify-center bg-indigo-600 text-white py-5 rounded-[1.5rem] font-black shadow-lg hover:bg-indigo-700 active:scale-95 transition-all"
             >
-              <Eye className="w-5 h-5 mr-2" /> Preview Compressed
+              <Eye className="w-5 h-5 mr-2" /> Preview Optimized
             </button>
             <button 
               onClick={handleDownload}
-              className="flex items-center justify-center bg-blue-600 text-white py-4 rounded-xl font-bold shadow-lg hover:bg-blue-700 active:scale-95 transition-all"
+              className="flex items-center justify-center bg-blue-600 text-white py-5 rounded-[1.5rem] font-black shadow-lg hover:bg-blue-700 active:scale-95 transition-all"
             >
               <Download className="w-5 h-5 mr-2" /> Download
             </button>
             <button 
               onClick={handleShare}
-              className="flex items-center justify-center bg-green-600 text-white py-4 rounded-xl font-bold shadow-lg hover:bg-green-700 active:scale-95 transition-all"
+              className="flex items-center justify-center bg-emerald-600 text-white py-5 rounded-[1.5rem] font-black shadow-lg hover:bg-emerald-700 active:scale-95 transition-all"
             >
               <Share2 className="w-5 h-5 mr-2" /> Share
             </button>
