@@ -2,7 +2,7 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { Camera as CameraIcon, Check, Download, Share2, Type as TypeIcon, Image as ImageIcon, Eye, Plus, Trash2, ChevronLeft, ChevronRight, Loader2, RefreshCw, Sun, SunDim, Edit3 } from 'lucide-react';
 import Tesseract from 'tesseract.js';
-import { generatePdfFromImages, generatePdfFromText, downloadBlob, shareBlob } from '../services/pdfService';
+import { generatePdfFromImages, generatePdfFromText, downloadBlob, shareBlob, preprocessForOcr } from '../services/pdfService';
 import PdfPreview from './PdfPreview';
 import ImageEditor from './ImageEditor';
 
@@ -86,17 +86,21 @@ const ScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
 
   const performOcr = async (index: number) => {
     const currentImg = capturedImages[index];
-    if (!currentImg || ocrTexts[index]?.trim().length > 10) return;
+    if (!currentImg) return;
     
     setIsProcessing(true);
     setProgress(0);
     try {
+      // 1. Pre-process the image for better OCR accuracy
+      const ocrSource = await preprocessForOcr(currentImg);
+
+      // 2. Perform OCR
       const worker = await Tesseract.createWorker('eng', 1, {
         logger: m => {
           if (m.status === 'recognizing') setProgress(Math.floor(m.progress * 100));
         }
       });
-      const { data: { text } } = await worker.recognize(currentImg);
+      const { data: { text } } = await worker.recognize(ocrSource);
       await worker.terminate();
       
       setOcrTexts(prev => {
@@ -106,6 +110,7 @@ const ScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       });
     } catch (err) {
       console.error("OCR Error:", err);
+      alert("OCR failed to recognize text in this image.");
     } finally {
       setIsProcessing(false);
     }

@@ -1,6 +1,10 @@
 
 import { jsPDF } from 'jspdf';
 import { PDFDocument } from 'pdf-lib';
+import * as pdfjs from 'pdfjs-dist';
+
+// Initialize PDF.js worker
+pdfjs.GlobalWorkerOptions.workerSrc = 'https://esm.sh/pdfjs-dist@4.10.38/build/pdf.worker.mjs';
 
 export const downloadBlob = (blob: Blob, filename: string) => {
   const url = URL.createObjectURL(blob);
@@ -66,7 +70,6 @@ export const generatePdfFromImages = async (images: string[]): Promise<Blob> => 
     const x = (pageWidth - finalW) / 2;
     const y = (pageHeight - finalH) / 2;
 
-    // Use 'FAST' and lower quality to keep base size optimized from the start
     doc.addImage(images[i], 'JPEG', x, y, finalW, finalH, undefined, 'FAST');
   }
   
@@ -85,25 +88,93 @@ export const generatePdfFromText = async (text: string): Promise<Blob> => {
 };
 
 /**
- * Super Aggressive Compression
- * Targets 75% reduction by utilizing advanced pdf-lib saving features.
+ * Aggressive 75% Compression Logic
+ * This renders existing PDF pages to optimized, lower-resolution JPEGs.
+ * It is highly effective for scanned documents.
  */
 export const compressPdf = async (pdfBuffer: ArrayBuffer): Promise<Blob> => {
-  const pdfDoc = await PDFDocument.load(pdfBuffer);
+  const loadingTask = pdfjs.getDocument({ data: pdfBuffer });
+  const pdf = await loadingTask.promise;
   
-  // For standard structural compression in browser:
-  // useObjectStreams: pack objects into streams
-  // objectsPerStream: higher value means more aggressive packing
-  // addDefaultPage: ensure no extra bloat
-  const compressedBytes = await pdfDoc.save({ 
-    useObjectStreams: true,
-    addDefaultPage: false,
-    updateFieldAppearances: false,
-    // Aggressively group objects to reduce PDF cross-reference table size
-    objectsPerStream: 100 
+  const doc = new jsPDF({
+    orientation: 'portrait',
+    unit: 'mm',
+    format: 'a4',
+    compress: true
   });
-  
-  return new Blob([compressedBytes], { type: 'application/pdf' });
+
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+
+  for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+    if (pageNum > 1) doc.addPage();
+    
+    const page = await pdf.getPage(pageNum);
+    // Lower scale (1.2 instead of 2.0+) for significant size savings
+    const viewport = page.getViewport({ scale: 1.2 });
+    
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d');
+    if (!context) continue;
+    
+    canvas.height = viewport.height;
+    canvas.width = viewport.width;
+
+    await page.render({ canvasContext: context, viewport }).promise;
+
+    // 0.6 quality JPEG provides approx 75% reduction vs high-quality raw data
+    const imgData = canvas.toDataURL('image/jpeg', 0.6);
+    
+    const ratio = viewport.width / viewport.height;
+    let finalW = pageWidth;
+    let finalH = pageWidth / ratio;
+
+    if (finalH > pageHeight) {
+      finalH = pageHeight;
+      finalW = pageHeight * ratio;
+    }
+
+    const x = (pageWidth - finalW) / 2;
+    const y = (pageHeight - finalH) / 2;
+
+    doc.addImage(imgData, 'JPEG', x, y, finalW, finalH, undefined, 'FAST');
+  }
+
+  return doc.output('blob');
+};
+
+/**
+ * Pre-processes an image for OCR by converting to high-contrast grayscale.
+ * This significantly improves Tesseract's recognition accuracy.
+ */
+export const preprocessForOcr = async (base64: string): Promise<string> => {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.src = base64;
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return resolve(base64);
+
+      canvas.width = img.width;
+      canvas.height = img.height;
+      ctx.drawImage(img, 0, 0);
+
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const data = imageData.data;
+      
+      for (let i = 0; i < data.length; i += 4) {
+        // High-contrast conversion: more weight to green for brightness
+        const grayscale = data[i] * 0.3 + data[i + 1] * 0.59 + data[i + 2] * 0.11;
+        // Binarization threshold to sharpen text edges
+        const val = grayscale > 140 ? 255 : 0;
+        data[i] = data[i + 1] = data[i + 2] = val;
+      }
+      
+      ctx.putImageData(imageData, 0, 0);
+      resolve(canvas.toDataURL('image/png'));
+    };
+  });
 };
 
 export interface ProcessOptions {
@@ -187,7 +258,6 @@ export const processImage = async (
       }
 
       ctx.restore();
-      // Lower quality export to further reduce final PDF size
       resolve(canvas.toDataURL('image/jpeg', 0.75)); 
     };
   });
