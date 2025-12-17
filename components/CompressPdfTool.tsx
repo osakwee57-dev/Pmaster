@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { FileDown, Download, Share2, FileCheck, Loader2, Eye, Zap, ShieldAlert } from 'lucide-react';
+import { FileDown, Download, Share2, FileCheck, Loader2, Eye, Zap, ShieldAlert, ArrowRight } from 'lucide-react';
 import { compressPdf, downloadBlob, shareBlob } from '../services/pdfService';
 import PdfPreview from './PdfPreview';
 
@@ -11,6 +11,15 @@ const CompressPdfTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [compressionRatio, setCompressionRatio] = useState<number>(0);
+
+  const formatSize = (bytes: number) => {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const dm = 2;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+  };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selected = e.target.files?.[0];
@@ -78,7 +87,7 @@ const CompressPdfTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                 <p className="font-black text-slate-900 truncate">{file.name}</p>
                 <div className="flex items-center mt-1">
                   <span className="text-[10px] font-black bg-slate-200 px-2 py-0.5 rounded-full text-slate-600 uppercase">Original</span>
-                  <p className="text-xs text-slate-500 font-bold ml-2">{(file.size / 1024 / 1024).toFixed(2)} MB</p>
+                  <p className="text-xs text-slate-500 font-bold ml-2">{formatSize(file.size)}</p>
                 </div>
               </div>
               <button 
@@ -120,7 +129,7 @@ const CompressPdfTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         </div>
         <div>
           <h4 className="font-black text-sm uppercase tracking-wider">75% Reduction Strategy</h4>
-          <p className="text-blue-200 text-xs font-medium leading-relaxed mt-1">Our engine utilizes object-stream packing and bit-depth optimization to significantly reduce size while preserving core information.</p>
+          <p className="text-blue-200 text-xs font-medium leading-relaxed mt-1">Our engine uses a hybrid method: structural packing for text and smart-rasterization for heavy graphics to guarantee minimum size.</p>
         </div>
       </div>
 
@@ -131,23 +140,35 @@ const CompressPdfTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
           className="w-full bg-slate-900 text-white py-6 rounded-[2rem] font-black text-xl shadow-2xl hover:bg-black transition-all flex items-center justify-center disabled:opacity-70 active:scale-95 group"
         >
           {isProcessing ? (
-            <><Loader2 className="w-6 h-6 mr-3 animate-spin" /> Compressing...</>
+            <><Loader2 className="w-6 h-6 mr-3 animate-spin" /> Analyzing & Optimizing...</>
           ) : (
-            <span className="flex items-center">Apply 75% Target <Zap className="w-5 h-5 ml-2 group-hover:fill-blue-400 transition-all" /></span>
+            <span className="flex items-center">Start Compression <Zap className="w-5 h-5 ml-2 group-hover:fill-blue-400 transition-all" /></span>
           )}
         </button>
       )}
 
-      {compressedBlob && (
+      {compressedBlob && file && (
         <div className="space-y-4 animate-in fade-in slide-in-from-bottom-6 duration-700">
           <div className="bg-emerald-500 p-8 rounded-[3rem] text-white shadow-2xl relative overflow-hidden">
             <div className="relative z-10">
-              <div className="flex items-center mb-2">
+              <div className="flex items-center mb-4">
                 <FileCheck className="w-6 h-6 mr-2" />
-                <p className="font-black uppercase tracking-widest text-xs opacity-80">Compression Success</p>
+                <p className="font-black uppercase tracking-widest text-xs opacity-80">Optimization Finished</p>
               </div>
-              <h3 className="text-4xl font-black mb-1">-{compressionRatio.toFixed(0)}%</h3>
-              <p className="text-emerald-100 font-bold">New size: {(compressedBlob.size / 1024 / 1024).toFixed(2)} MB</p>
+              <div className="flex items-end space-x-4 mb-6">
+                <div className="text-center">
+                   <p className="text-[10px] font-black uppercase opacity-60">Before</p>
+                   <p className="text-sm font-bold">{formatSize(file.size)}</p>
+                </div>
+                <ArrowRight className="w-8 h-8 mb-1 opacity-40" />
+                <div className="text-center">
+                   <p className="text-[10px] font-black uppercase opacity-60">After</p>
+                   <p className="text-xl font-black">{formatSize(compressedBlob.size)}</p>
+                </div>
+              </div>
+              <div className="inline-block bg-white/20 px-6 py-2 rounded-2xl">
+                <h3 className="text-3xl font-black">-{compressionRatio.toFixed(0)}%</h3>
+              </div>
             </div>
             <FileCheck className="absolute -bottom-10 -right-10 w-48 h-48 opacity-10" />
           </div>
@@ -157,7 +178,7 @@ const CompressPdfTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
               onClick={() => setShowPreview(true)}
               className="col-span-2 flex items-center justify-center bg-indigo-600 text-white py-5 rounded-[1.5rem] font-black shadow-lg hover:bg-indigo-700 active:scale-95 transition-all"
             >
-              <Eye className="w-5 h-5 mr-2" /> Preview Optimized
+              <Eye className="w-5 h-5 mr-2" /> Preview & Verify
             </button>
             <button 
               onClick={handleDownload}
