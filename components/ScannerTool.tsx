@@ -1,6 +1,6 @@
 
-import React, { useState, useRef, useCallback } from 'react';
-import { Camera, RefreshCw, Check, Download, Share2, Type as TypeIcon, Image as ImageIcon, Eye, FileEdit, Plus, Trash2, ChevronLeft, ChevronRight } from 'lucide-react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
+import { Camera as CameraIcon, Check, Download, Share2, Type as TypeIcon, Image as ImageIcon, Eye, FileEdit, Plus, Trash2, ChevronLeft, ChevronRight, X, Loader2 } from 'lucide-react';
 import Tesseract from 'tesseract.js';
 import { generatePdfFromImages, generatePdfFromText, downloadBlob, shareBlob } from '../services/pdfService';
 import PdfPreview from './PdfPreview';
@@ -16,6 +16,7 @@ const ScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const [ocrTexts, setOcrTexts] = useState<string[]>([]);
   const [filename, setFilename] = useState('');
   const [previewBlob, setPreviewBlob] = useState<Blob | null>(null);
+  const [isShutterActive, setIsShutterActive] = useState(false);
   
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -23,7 +24,7 @@ const ScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const startCamera = async () => {
     try {
       const mediaStream = await navigator.mediaDevices.getUserMedia({ 
-        video: { facingMode: 'environment' } 
+        video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } } 
       });
       setStream(mediaStream);
       setIsCameraActive(true);
@@ -32,7 +33,7 @@ const ScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       }
     } catch (err) {
       console.error("Error accessing camera", err);
-      alert("Could not access camera. Please check permissions.");
+      alert("Camera access denied. Please enable permissions in your browser settings.");
     }
   };
 
@@ -46,17 +47,24 @@ const ScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     if (videoRef.current && canvasRef.current) {
       const context = canvasRef.current.getContext('2d');
       if (context) {
+        // Shutter animation
+        setIsShutterActive(true);
+        setTimeout(() => setIsShutterActive(false), 150);
+
         canvasRef.current.width = videoRef.current.videoWidth;
         canvasRef.current.height = videoRef.current.videoHeight;
         context.drawImage(videoRef.current, 0, 0);
-        const dataUrl = canvasRef.current.toDataURL('image/jpeg');
-        setCapturedImages(prev => [...prev, dataUrl]);
+        const dataUrl = canvasRef.current.toDataURL('image/jpeg', 0.8);
+        
+        setCapturedImages(prev => {
+          const newImages = [...prev, dataUrl];
+          setActivePageIndex(newImages.length - 1);
+          return newImages;
+        });
         setOcrTexts(prev => [...prev, '']);
-        setActivePageIndex(capturedImages.length);
-        stopCamera();
       }
     }
-  }, [stream, capturedImages]);
+  }, [stream]);
 
   const removePage = (index: number) => {
     const newImages = capturedImages.filter((_, i) => i !== index);
@@ -71,18 +79,10 @@ const ScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     }
   };
 
-  const reset = () => {
-    setCapturedImages([]);
-    setOcrTexts([]);
-    setFilename('');
-    setPreviewBlob(null);
-    setProgress(0);
-    startCamera();
-  };
-
-  const performOcr = async () => {
-    const currentImg = capturedImages[activePageIndex];
-    if (!currentImg) return;
+  const performOcr = async (index: number) => {
+    const currentImg = capturedImages[index];
+    if (!currentImg || ocrTexts[index]) return;
+    
     setIsProcessing(true);
     try {
       const { data: { text } } = await Tesseract.recognize(currentImg, 'eng', {
@@ -90,11 +90,13 @@ const ScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
           if (m.status === 'recognizing') setProgress(Math.floor(m.progress * 100));
         }
       });
-      const updatedOcr = [...ocrTexts];
-      updatedOcr[activePageIndex] = text;
-      setOcrTexts(updatedOcr);
+      setOcrTexts(prev => {
+        const updated = [...prev];
+        updated[index] = text;
+        return updated;
+      });
     } catch (err) {
-      alert("OCR failed.");
+      console.error(err);
     } finally {
       setIsProcessing(false);
     }
@@ -106,20 +108,20 @@ const ScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     try {
       let blob: Blob;
       if (mode === 'typed') {
-        blob = await generatePdfFromText(ocrTexts.join('\n\n--- Page Break ---\n\n'));
+        blob = await generatePdfFromText(ocrTexts.filter(t => t).join('\n\n'));
       } else {
         blob = await generatePdfFromImages(capturedImages);
       }
       setPreviewBlob(blob);
     } catch (err) {
-      alert("Error generating preview.");
+      alert("Failed to generate preview.");
     } finally {
       setIsProcessing(false);
     }
   };
 
   const getFinalFilename = () => {
-    const base = filename.trim() || `scanned_doc_${Date.now()}`;
+    const base = filename.trim() || `Scan_${new Date().toLocaleDateString().replace(/\//g, '-')}`;
     return base.toLowerCase().endsWith('.pdf') ? base : `${base}.pdf`;
   };
 
@@ -132,192 +134,214 @@ const ScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     downloadBlob(blob, getFinalFilename());
   };
 
-  const handleShare = async () => {
-    let blob = previewBlob;
-    if (!blob) {
-      if (mode === 'typed') blob = await generatePdfFromText(ocrTexts.join('\n\n'));
-      else blob = await generatePdfFromImages(capturedImages);
-    }
-    await shareBlob(blob, getFinalFilename());
-  };
-
-  React.useEffect(() => {
+  useEffect(() => {
     startCamera();
-    return () => {
-      stream?.getTracks().forEach(track => track.stop());
-    };
+    return () => stopCamera();
   }, []);
 
   return (
-    <div className="flex flex-col items-center max-w-2xl mx-auto p-4 space-y-6 pb-24">
-      <div className="w-full flex justify-between items-center mb-2">
-        <button onClick={onBack} className="text-blue-600 font-semibold p-2 hover:bg-blue-50 rounded-lg flex items-center">
-          <ChevronLeft className="w-5 h-5 mr-1" /> Back
+    <div className="min-h-screen bg-slate-50 flex flex-col pb-24">
+      {/* Dynamic Header */}
+      <div className="px-6 pt-12 pb-6 flex items-center justify-between sticky top-0 bg-slate-50/80 backdrop-blur-md z-40">
+        <button onClick={onBack} className="p-2 -ml-2 hover:bg-white rounded-full transition-colors text-slate-600">
+          <ChevronLeft className="w-6 h-6" />
         </button>
-        <div className="text-center">
-          <h2 className="text-xl font-black text-slate-800">Scanner</h2>
+        <div className="flex flex-col items-center">
+          <h2 className="text-lg font-black text-slate-900 tracking-tight">
+            {isCameraActive ? 'Scanning Document' : 'Review & Edit'}
+          </h2>
           {capturedImages.length > 0 && (
-            <p className="text-xs font-bold text-blue-600 uppercase tracking-widest">{capturedImages.length} Page{capturedImages.length > 1 ? 's' : ''} Captured</p>
+            <span className="text-[10px] font-black text-blue-600 uppercase tracking-widest bg-blue-50 px-2 py-0.5 rounded-full">
+              {capturedImages.length} Page{capturedImages.length > 1 ? 's' : ''}
+            </span>
           )}
         </div>
-        <button onClick={reset} className="text-slate-400 font-bold text-sm hover:text-red-500 transition-colors">Reset</button>
+        <button 
+          onClick={() => {
+            setCapturedImages([]);
+            setOcrTexts([]);
+            startCamera();
+          }} 
+          className="text-xs font-bold text-slate-400 hover:text-red-500"
+        >
+          Reset
+        </button>
       </div>
 
-      <div className="w-full aspect-[3/4] bg-slate-900 rounded-[2.5rem] overflow-hidden relative shadow-2xl border-4 border-white">
-        {isCameraActive ? (
-          <>
-            <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover" />
-            <div className="absolute top-6 right-6 bg-black/50 backdrop-blur-md px-4 py-1.5 rounded-full border border-white/20">
-              <span className="text-white text-xs font-black uppercase tracking-widest">Live View</span>
-            </div>
-            <button 
-              onClick={capture}
-              className="absolute bottom-10 left-1/2 -translate-x-1/2 w-20 h-20 bg-white/20 backdrop-blur-md rounded-full border-4 border-white flex items-center justify-center shadow-lg active:scale-90 transition-transform"
-            >
-              <div className="w-14 h-14 bg-white rounded-full flex items-center justify-center">
-                <div className="w-12 h-12 border-4 border-blue-600 rounded-full" />
+      <div className="flex-1 px-4 space-y-6">
+        {/* Viewfinder / Previewer */}
+        <div className={`relative w-full aspect-[3/4] rounded-[2.5rem] overflow-hidden shadow-2xl border-4 border-white bg-slate-900 transition-all ${isShutterActive ? 'scale-95 brightness-150' : 'scale-100'}`}>
+          {isCameraActive ? (
+            <>
+              <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover" />
+              {/* Overlay graphics */}
+              <div className="absolute inset-0 border-[20px] border-white/5 pointer-events-none">
+                <div className="w-full h-full border border-white/20 rounded-2xl" />
               </div>
-            </button>
-          </>
-        ) : (
-          <div className="w-full h-full relative group bg-slate-100">
-            <img src={capturedImages[activePageIndex]} className="w-full h-full object-contain" alt={`Page ${activePageIndex + 1}`} />
-            
-            {/* Page Navigation Overlay */}
-            {capturedImages.length > 1 && (
-              <div className="absolute inset-y-0 w-full flex justify-between items-center px-4 pointer-events-none">
-                <button 
-                  disabled={activePageIndex === 0}
-                  onClick={() => setActivePageIndex(prev => prev - 1)}
-                  className="w-10 h-10 rounded-full bg-white/80 shadow-lg flex items-center justify-center pointer-events-auto disabled:opacity-0 transition-opacity"
-                >
-                  <ChevronLeft className="w-6 h-6 text-slate-800" />
-                </button>
-                <button 
-                  disabled={activePageIndex === capturedImages.length - 1}
-                  onClick={() => setActivePageIndex(prev => prev + 1)}
-                  className="w-10 h-10 rounded-full bg-white/80 shadow-lg flex items-center justify-center pointer-events-auto disabled:opacity-0 transition-opacity"
-                >
-                  <ChevronRight className="w-6 h-6 text-slate-800" />
-                </button>
+              <div className="absolute top-6 left-1/2 -translate-x-1/2 bg-black/40 backdrop-blur-md px-4 py-1.5 rounded-full border border-white/10">
+                <p className="text-white text-[10px] font-bold uppercase tracking-[0.2em]">Align document</p>
               </div>
-            )}
-
-            <div className="absolute top-4 left-4 bg-blue-600 text-white px-3 py-1 rounded-full text-xs font-black shadow-lg">
-              Page {activePageIndex + 1} / {capturedImages.length}
-            </div>
-            
-            <button 
-              onClick={() => removePage(activePageIndex)}
-              className="absolute top-4 right-4 bg-red-500 text-white p-2 rounded-full shadow-lg active:scale-90 transition-transform"
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
-          </div>
-        )}
-        <canvas ref={canvasRef} className="hidden" />
-      </div>
-
-      {capturedImages.length > 0 && !isCameraActive && (
-        <div className="w-full space-y-6 animate-in slide-in-from-bottom-4 duration-300">
-          
-          {/* Thumbnail Strip */}
-          <div className="flex space-x-3 overflow-x-auto pb-2 px-1 scrollbar-hide">
-            {capturedImages.map((img, idx) => (
-              <button 
-                key={idx}
-                onClick={() => setActivePageIndex(idx)}
-                className={`relative flex-shrink-0 w-16 h-20 rounded-xl overflow-hidden border-2 transition-all ${activePageIndex === idx ? 'border-blue-600 scale-105 shadow-md' : 'border-transparent opacity-60'}`}
-              >
-                <img src={img} className="w-full h-full object-cover" />
-                <div className="absolute bottom-0 right-0 bg-black/60 text-white text-[8px] px-1 rounded-tl-lg font-bold">P{idx + 1}</div>
-              </button>
-            ))}
-            <button 
-              onClick={startCamera}
-              className="flex-shrink-0 w-16 h-20 rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 flex items-center justify-center hover:bg-slate-100 transition-colors"
-            >
-              <Plus className="w-6 h-6 text-slate-400" />
-            </button>
-          </div>
-
-          <div className="space-y-4">
-            <div className="space-y-1">
-              <label className="text-[10px] font-black uppercase text-slate-400 px-1 tracking-widest">Document Title</label>
-              <input 
-                type="text"
-                placeholder="Name your file..."
-                value={filename}
-                onChange={(e) => setFilename(e.target.value)}
-                className="w-full px-5 py-4 rounded-2xl border-2 border-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none bg-white shadow-sm font-semibold"
-              />
-            </div>
-
-            <div className="flex bg-slate-100 p-1.5 rounded-[1.5rem]">
-              <button 
-                onClick={() => setMode('raw')}
-                className={`flex-1 flex items-center justify-center py-3 px-4 rounded-xl transition-all ${mode === 'raw' ? 'bg-white shadow-md text-blue-600 font-black' : 'text-slate-500 font-bold'}`}
-              >
-                <ImageIcon className="w-4 h-4 mr-2" /> Visual PDF
-              </button>
-              <button 
-                onClick={() => {
-                  setMode('typed');
-                  if (!ocrTexts[activePageIndex]) performOcr();
-                }}
-                className={`flex-1 flex items-center justify-center py-3 px-4 rounded-xl transition-all ${mode === 'typed' ? 'bg-white shadow-md text-blue-600 font-black' : 'text-slate-500 font-bold'}`}
-              >
-                <TypeIcon className="w-4 h-4 mr-2" /> Typed (OCR)
-              </button>
-            </div>
-
-            {mode === 'typed' && (
-              <div className="space-y-2 animate-in fade-in duration-300">
-                <div className="flex justify-between items-center px-1">
-                  <label className="text-xs font-black text-slate-500 flex items-center uppercase tracking-widest">
-                    <FileEdit className="w-3 h-3 mr-1.5" /> Content: Page {activePageIndex + 1}
-                  </label>
-                  {isProcessing && <span className="text-[10px] text-blue-600 font-black animate-pulse">Scanning: {progress}%</span>}
+            </>
+          ) : (
+            <div className="w-full h-full bg-slate-100 flex items-center justify-center">
+              <img src={capturedImages[activePageIndex]} className="max-w-full max-h-full object-contain" alt="Preview" />
+              
+              {capturedImages.length > 1 && (
+                <div className="absolute inset-x-4 top-1/2 -translate-y-1/2 flex justify-between pointer-events-none">
+                  <button 
+                    disabled={activePageIndex === 0}
+                    onClick={() => setActivePageIndex(p => p - 1)}
+                    className="w-10 h-10 rounded-full bg-white/90 shadow-lg flex items-center justify-center pointer-events-auto disabled:opacity-0 transition-opacity"
+                  >
+                    <ChevronLeft className="w-6 h-6 text-slate-800" />
+                  </button>
+                  <button 
+                    disabled={activePageIndex === capturedImages.length - 1}
+                    onClick={() => setActivePageIndex(p => p + 1)}
+                    className="w-10 h-10 rounded-full bg-white/90 shadow-lg flex items-center justify-center pointer-events-auto disabled:opacity-0 transition-opacity"
+                  >
+                    <ChevronRight className="w-6 h-6 text-slate-800" />
+                  </button>
                 </div>
-                <textarea 
-                  value={ocrTexts[activePageIndex]}
-                  onChange={(e) => {
-                    const updated = [...ocrTexts];
-                    updated[activePageIndex] = e.target.value;
-                    setOcrTexts(updated);
-                  }}
-                  placeholder="Recognizing text from image..."
-                  className="w-full h-40 p-5 rounded-2xl border-2 border-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none resize-none bg-white shadow-inner text-sm leading-relaxed font-medium"
+              )}
+              
+              <button 
+                onClick={() => removePage(activePageIndex)}
+                className="absolute top-6 right-6 bg-red-500 text-white p-3 rounded-full shadow-lg hover:bg-red-600 transition-colors"
+              >
+                <Trash2 className="w-5 h-5" />
+              </button>
+            </div>
+          )}
+          <canvas ref={canvasRef} className="hidden" />
+        </div>
+
+        {/* Controls */}
+        {isCameraActive ? (
+          <div className="flex flex-col items-center space-y-8 pb-10">
+            <div className="flex items-center space-x-12">
+              <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-white shadow-lg bg-slate-200">
+                {capturedImages.length > 0 && <img src={capturedImages[capturedImages.length - 1]} className="w-full h-full object-cover" />}
+              </div>
+              <button 
+                onClick={capture}
+                className="w-20 h-20 bg-white/20 backdrop-blur-md rounded-full border-4 border-white flex items-center justify-center shadow-2xl active:scale-90 transition-transform"
+              >
+                <div className="w-14 h-14 bg-white rounded-full flex items-center justify-center">
+                  <div className="w-12 h-12 border-4 border-blue-600 rounded-full" />
+                </div>
+              </button>
+              {capturedImages.length > 0 ? (
+                <button 
+                  onClick={stopCamera}
+                  className="w-12 h-12 bg-blue-600 text-white rounded-full flex items-center justify-center shadow-lg active:scale-95 transition-transform"
+                >
+                  <Check className="w-6 h-6" />
+                </button>
+              ) : (
+                <div className="w-12" />
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-6 pb-20 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            {/* Page Slider */}
+            <div className="flex space-x-3 overflow-x-auto pb-4 scrollbar-hide px-2">
+              {capturedImages.map((img, idx) => (
+                <button 
+                  key={idx} 
+                  onClick={() => setActivePageIndex(idx)}
+                  className={`relative flex-shrink-0 w-20 h-24 rounded-2xl overflow-hidden border-4 transition-all ${activePageIndex === idx ? 'border-blue-600 scale-105 shadow-xl' : 'border-transparent opacity-60'}`}
+                >
+                  <img src={img} className="w-full h-full object-cover" />
+                  <div className="absolute inset-0 bg-black/10" />
+                  <span className="absolute bottom-1 right-2 text-[10px] text-white font-black">{idx + 1}</span>
+                </button>
+              ))}
+              <button 
+                onClick={startCamera}
+                className="flex-shrink-0 w-20 h-24 rounded-2xl border-4 border-dashed border-slate-300 bg-white flex flex-col items-center justify-center space-y-1 text-slate-400 hover:text-blue-500 hover:border-blue-300 transition-colors"
+              >
+                <Plus className="w-6 h-6" />
+                <span className="text-[10px] font-bold uppercase">Add</span>
+              </button>
+            </div>
+
+            <div className="bg-white p-6 rounded-[2rem] shadow-xl shadow-slate-200 border border-slate-100 space-y-6">
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase text-slate-400 px-1 tracking-widest">Document Name</label>
+                <input 
+                  type="text"
+                  placeholder="Scan Title..."
+                  value={filename}
+                  onChange={(e) => setFilename(e.target.value)}
+                  className="w-full px-5 py-4 rounded-2xl bg-slate-50 border-2 border-transparent focus:border-blue-500 focus:bg-white outline-none transition-all font-bold text-slate-800"
                 />
               </div>
-            )}
 
-            <div className="grid grid-cols-2 gap-4">
-              <button 
-                disabled={isProcessing}
-                onClick={handlePreview}
-                className="col-span-2 flex items-center justify-center bg-slate-900 text-white py-4 rounded-2xl font-black shadow-xl hover:bg-slate-800 disabled:opacity-50 transition-all active:scale-95"
-              >
-                <Eye className="w-5 h-5 mr-2" /> Full Preview
-              </button>
-              <button 
-                disabled={isProcessing}
-                onClick={handleDownload}
-                className="flex items-center justify-center bg-blue-600 text-white py-4 rounded-2xl font-black shadow-xl hover:bg-blue-700 disabled:opacity-50 transition-all active:scale-95"
-              >
-                <Download className="w-5 h-5 mr-2" /> Download
-              </button>
-              <button 
-                disabled={isProcessing}
-                onClick={handleShare}
-                className="flex items-center justify-center bg-green-600 text-white py-4 rounded-2xl font-black shadow-xl hover:bg-green-700 disabled:opacity-50 transition-all active:scale-95"
-              >
-                <Share2 className="w-5 h-5 mr-2" /> Share PDF
-              </button>
+              <div className="flex bg-slate-100 p-1.5 rounded-2xl">
+                <button 
+                  onClick={() => setMode('raw')}
+                  className={`flex-1 flex items-center justify-center py-3 rounded-xl transition-all ${mode === 'raw' ? 'bg-white shadow text-blue-600 font-black' : 'text-slate-500 font-bold'}`}
+                >
+                  <ImageIcon className="w-4 h-4 mr-2" /> Visual
+                </button>
+                <button 
+                  onClick={() => {
+                    setMode('typed');
+                    performOcr(activePageIndex);
+                  }}
+                  className={`flex-1 flex items-center justify-center py-3 rounded-xl transition-all ${mode === 'typed' ? 'bg-white shadow text-blue-600 font-black' : 'text-slate-500 font-bold'}`}
+                >
+                  <TypeIcon className="w-4 h-4 mr-2" /> OCR Text
+                </button>
+              </div>
+
+              {mode === 'typed' && (
+                <div className="space-y-3 animate-in fade-in duration-300">
+                  <div className="flex justify-between items-center px-1">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase">Page {activePageIndex + 1} Content</p>
+                    {isProcessing && <span className="flex items-center text-[10px] text-blue-600 font-black animate-pulse"><Loader2 className="w-3 h-3 mr-1 animate-spin" /> {progress}%</span>}
+                  </div>
+                  <textarea 
+                    value={ocrTexts[activePageIndex]}
+                    onChange={(e) => {
+                      const updated = [...ocrTexts];
+                      updated[activePageIndex] = e.target.value;
+                      setOcrTexts(updated);
+                    }}
+                    className="w-full h-48 p-4 rounded-2xl bg-slate-50 border border-slate-100 text-sm font-medium focus:ring-2 focus:ring-blue-500 outline-none resize-none leading-relaxed"
+                  />
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-3">
+                <button 
+                  onClick={handlePreview}
+                  disabled={isProcessing}
+                  className="col-span-2 py-4 bg-slate-900 text-white rounded-2xl font-black shadow-lg hover:opacity-90 active:scale-95 transition-all flex items-center justify-center"
+                >
+                  <Eye className="w-5 h-5 mr-2" /> Full Preview
+                </button>
+                <button 
+                  onClick={handleDownload}
+                  disabled={isProcessing}
+                  className="py-4 bg-blue-600 text-white rounded-2xl font-black shadow-lg hover:bg-blue-700 active:scale-95 transition-all flex items-center justify-center"
+                >
+                  <Download className="w-5 h-5 mr-2" /> Download
+                </button>
+                <button 
+                  onClick={() => shareBlob(previewBlob!, getFinalFilename())}
+                  disabled={isProcessing || !previewBlob}
+                  className="py-4 bg-green-600 text-white rounded-2xl font-black shadow-lg hover:bg-green-700 active:scale-95 transition-all flex items-center justify-center disabled:opacity-50"
+                >
+                  <Share2 className="w-5 h-5 mr-2" /> Share
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       {previewBlob && (
         <PdfPreview 
@@ -325,7 +349,7 @@ const ScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
           filename={getFinalFilename()} 
           onClose={() => setPreviewBlob(null)}
           onDownload={handleDownload}
-          onShare={handleShare}
+          onShare={() => shareBlob(previewBlob!, getFinalFilename())}
         />
       )}
     </div>

@@ -20,47 +20,75 @@ export const shareBlob = async (blob: Blob, filename: string) => {
       await navigator.share({
         files: [file],
         title: 'Share PDF',
-        text: 'Sharing my generated PDF document',
+        text: 'Generated with PDF Master',
       });
     } catch (error) {
       console.error('Error sharing:', error);
-      alert('Sharing failed or was cancelled.');
     }
   } else {
-    alert('Sharing is not supported on this browser/device.');
+    alert('Sharing is not supported on this browser.');
   }
 };
 
 export const generatePdfFromImages = async (images: string[]): Promise<Blob> => {
-  const doc = new jsPDF();
+  const doc = new jsPDF({
+    orientation: 'portrait',
+    unit: 'mm',
+    format: 'a4'
+  });
+
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+
   for (let i = 0; i < images.length; i++) {
     if (i > 0) doc.addPage();
-    const imgData = images[i];
     
-    // Calculate aspect ratio to fit image on A4
-    const pageWidth = doc.internal.pageSize.getWidth();
-    const pageHeight = doc.internal.pageSize.getHeight();
+    const img = new Image();
+    img.src = images[i];
     
-    // We add the image and stretch it to fill as much as possible while maintaining aspect ratio
-    doc.addImage(imgData, 'JPEG', 0, 0, pageWidth, pageHeight, undefined, 'FAST');
+    // Wait for image to load to get dimensions
+    await new Promise((resolve) => {
+      img.onload = resolve;
+    });
+
+    const imgWidth = img.width;
+    const imgHeight = img.height;
+    const ratio = imgWidth / imgHeight;
+
+    let finalW = pageWidth;
+    let finalH = pageWidth / ratio;
+
+    if (finalH > pageHeight) {
+      finalH = pageHeight;
+      finalW = pageHeight * ratio;
+    }
+
+    const x = (pageWidth - finalW) / 2;
+    const y = (pageHeight - finalH) / 2;
+
+    doc.addImage(images[i], 'JPEG', x, y, finalW, finalH, undefined, 'FAST');
   }
+  
   return doc.output('blob');
 };
 
 export const generatePdfFromText = async (text: string): Promise<Blob> => {
   const doc = new jsPDF();
-  const margin = 15;
+  const margin = 20;
   const pageWidth = doc.internal.pageSize.getWidth();
   const splitText = doc.splitTextToSize(text, pageWidth - margin * 2);
+  
+  doc.setFontSize(11);
   doc.text(splitText, margin, margin);
   return doc.output('blob');
 };
 
 export const compressPdf = async (pdfBuffer: ArrayBuffer): Promise<Blob> => {
-  // Client-side compression is mainly about re-serializing or modifying images.
-  // Using pdf-lib to re-save with compression.
   const pdfDoc = await PDFDocument.load(pdfBuffer);
-  // pdf-lib's save method applies basic flate compression to objects.
-  const compressedBytes = await pdfDoc.save({ useObjectStreams: true });
+  // pdf-lib's save method applies basic flate compression
+  const compressedBytes = await pdfDoc.save({ 
+    useObjectStreams: true,
+    addDefaultPage: false 
+  });
   return new Blob([compressedBytes], { type: 'application/pdf' });
 };
