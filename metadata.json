@@ -1,0 +1,7 @@
+{
+  "name": "PDF Master Toolset",
+  "description": "A comprehensive, client-side PDF utility for scanning, converting text/images, and compressing documents.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
