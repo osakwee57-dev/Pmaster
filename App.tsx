@@ -1,10 +1,10 @@
 
 import React, { useState } from 'react';
-import { Camera, FileText, ImageIcon, Minimize2, ChevronRight, FileOutput, ShieldCheck, Zap } from 'lucide-react';
+import { Camera, FileText, ImageIcon, ChevronRight, FileOutput, ShieldCheck, Zap, Scissors } from 'lucide-react';
 import ScannerTool from './components/ScannerTool';
 import TextToPdfTool from './components/TextToPdfTool';
 import ImageToPdfTool from './components/ImageToPdfTool';
-import CompressPdfTool from './components/CompressPdfTool';
+import ShrinkPdfTool from './components/ShrinkPdfTool';
 import { ToolType } from './types';
 
 const App: React.FC = () => {
@@ -14,7 +14,7 @@ const App: React.FC = () => {
     {
       id: 'scan' as ToolType,
       title: 'Scan Document',
-      description: 'Capture with AI text recognition',
+      description: 'Capture with high-quality inspection',
       icon: <Camera className="w-7 h-7 text-blue-600" />,
       color: 'bg-blue-100',
     },
@@ -33,18 +33,18 @@ const App: React.FC = () => {
       color: 'bg-pink-100',
     },
     {
-      id: 'compress' as ToolType,
-      title: 'Compress PDF',
-      description: 'Reduce file size, keep quality',
-      icon: <Minimize2 className="w-7 h-7 text-emerald-600" />,
-      color: 'bg-emerald-100',
+      id: 'shrink' as ToolType,
+      title: 'Ultra Shrink',
+      description: 'Aggressive 50% size reduction',
+      icon: <Scissors className="w-7 h-7 text-indigo-600" />,
+      color: 'bg-indigo-100',
     }
   ];
 
   if (activeTool === 'scan') return <ScannerTool onBack={() => setActiveTool(null)} />;
   if (activeTool === 'text') return <TextToPdfTool onBack={() => setActiveTool(null)} />;
   if (activeTool === 'image') return <ImageToPdfTool onBack={() => setActiveTool(null)} />;
-  if (activeTool === 'compress') return <CompressPdfTool onBack={() => setActiveTool(null)} />;
+  if (activeTool === 'shrink') return <ShrinkPdfTool onBack={() => setActiveTool(null)} />;
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans selection:bg-blue-100">
@@ -73,7 +73,7 @@ const App: React.FC = () => {
           <div className="relative z-10 max-w-[220px]">
             <div className="bg-blue-500/20 backdrop-blur-sm border border-blue-500/30 w-fit px-3 py-1 rounded-full flex items-center mb-6">
               <Zap className="w-3 h-3 text-blue-400 mr-2 fill-blue-400" />
-              <span className="text-[10px] font-black uppercase tracking-widest text-blue-200">New Feature</span>
+              <span className="text-[10px] font-black uppercase tracking-widest text-blue-200">Local Privacy</span>
             </div>
             <h2 className="text-3xl font-bold mb-3 tracking-tight leading-tight">Professional Scanning.</h2>
             <p className="text-slate-400 text-sm font-medium mb-8 leading-relaxed">Turn your paper trail into high-quality digital assets instantly.</p>

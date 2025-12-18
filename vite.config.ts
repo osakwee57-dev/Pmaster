@@ -18,8 +18,6 @@ export default defineConfig({
         'react-dom/client',
         'lucide-react',
         'jspdf',
-        'pdf-lib',
-        'pdfjs-dist',
         '@vercel/analytics/react'
       ],
     },

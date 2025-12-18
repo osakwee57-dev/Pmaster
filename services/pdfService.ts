@@ -31,6 +31,36 @@ export const shareBlob = async (blob: Blob, filename: string) => {
   }
 };
 
+/**
+ * High-Efficiency PDF Shrink
+ * Uses pdf-lib to reconstruct the document. By default, copying pages 
+ * to a new document and saving with object streams strips metadata, 
+ * orphaned objects, and re-compresses internal streams.
+ */
+export const compressPdf = async (buffer: ArrayBuffer): Promise<Blob> => {
+  try {
+    const pdfDoc = await PDFDocument.load(buffer);
+    
+    // Create a new document to ensure we only carry over active resources
+    const newPdf = await PDFDocument.create();
+    const indices = Array.from({ length: pdfDoc.getPageCount() }, (_, i) => i);
+    const copiedPages = await newPdf.copyPages(pdfDoc, indices);
+    
+    copiedPages.forEach((page) => newPdf.addPage(page));
+    
+    // useObjectStreams: true is key for structural compression
+    const compressedBytes = await newPdf.save({ 
+      useObjectStreams: true,
+      addDefaultPage: false 
+    });
+    
+    return new Blob([compressedBytes], { type: 'application/pdf' });
+  } catch (err) {
+    console.error("Compression error:", err);
+    throw err;
+  }
+};
+
 export const generatePdfFromImages = async (images: string[]): Promise<Blob> => {
   const doc = new jsPDF({
     orientation: 'portrait',
@@ -84,33 +114,6 @@ export const generatePdfFromText = async (text: string): Promise<Blob> => {
   doc.setFontSize(11);
   doc.text(splitText, margin, margin);
   return doc.output('blob') as unknown as Blob;
-};
-
-/**
- * Enhanced Compression using Document Reconstruction.
- * Copies pages to a new document to strip orphaned objects and optimizes object streams.
- */
-export const compressPdf = async (pdfBuffer: ArrayBuffer): Promise<Blob> => {
-  try {
-    const srcDoc = await PDFDocument.load(pdfBuffer);
-    const pdfDoc = await PDFDocument.create();
-    
-    // Page Cloning: Strips unused data from the source document structure
-    const copiedPages = await pdfDoc.copyPages(srcDoc, srcDoc.getPageIndices());
-    copiedPages.forEach((page) => pdfDoc.addPage(page));
-
-    const compressedBytes = await pdfDoc.save({ 
-      useObjectStreams: true,
-      addDefaultPage: false,
-      updateFieldAppearances: false,
-      objectsPerStream: 50
-    });
-
-    return new Blob([compressedBytes], { type: 'application/pdf' });
-  } catch (error) {
-    console.error("Compression error:", error);
-    return new Blob([pdfBuffer], { type: 'application/pdf' });
-  }
 };
 
 export interface ProcessOptions {
