@@ -1,10 +1,10 @@
 
 import React, { useState } from 'react';
-import { Camera, FileText, ImageIcon, ChevronRight, FileOutput, ShieldCheck, Zap, Scissors } from 'lucide-react';
+import { Camera, FileText, ImageIcon, ChevronRight, FileOutput, ShieldCheck, Zap, Cpu } from 'lucide-react';
 import ScannerTool from './components/ScannerTool';
 import TextToPdfTool from './components/TextToPdfTool';
 import ImageToPdfTool from './components/ImageToPdfTool';
-import ShrinkPdfTool from './components/ShrinkPdfTool';
+import GhostscriptTool from './components/GhostscriptTool';
 import { ToolType } from './types';
 
 const App: React.FC = () => {
@@ -33,18 +33,18 @@ const App: React.FC = () => {
       color: 'bg-pink-100',
     },
     {
-      id: 'shrink' as ToolType,
-      title: 'Ultra Shrink',
+      id: 'gs_compress' as ToolType,
+      title: 'GS Compressor',
       description: 'Aggressive 50% size reduction',
-      icon: <Scissors className="w-7 h-7 text-indigo-600" />,
-      color: 'bg-indigo-100',
+      icon: <Cpu className="w-7 h-7 text-slate-800" />,
+      color: 'bg-slate-200',
     }
   ];
 
   if (activeTool === 'scan') return <ScannerTool onBack={() => setActiveTool(null)} />;
   if (activeTool === 'text') return <TextToPdfTool onBack={() => setActiveTool(null)} />;
   if (activeTool === 'image') return <ImageToPdfTool onBack={() => setActiveTool(null)} />;
-  if (activeTool === 'shrink') return <ShrinkPdfTool onBack={() => setActiveTool(null)} />;
+  if (activeTool === 'gs_compress') return <GhostscriptTool onBack={() => setActiveTool(null)} />;
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans selection:bg-blue-100">
@@ -85,16 +85,13 @@ const App: React.FC = () => {
             </button>
           </div>
           
-          {/* Abstract background shapes */}
           <div className="absolute -right-20 -bottom-20 w-64 h-64 bg-blue-600/10 rounded-full blur-3xl" />
-          <div className="absolute top-10 -right-10 w-48 h-48 bg-purple-600/10 rounded-full blur-3xl" />
           <div className="absolute top-1/2 right-12 transform -translate-y-1/2 opacity-10 group-hover:scale-110 transition-transform duration-1000">
             <FileOutput className="w-48 h-48" />
           </div>
         </div>
       </div>
 
-      {/* Tool Selection Grid */}
       <main className="px-6 flex-grow pb-32">
         <h3 className="text-xs font-black text-slate-400 uppercase tracking-[0.2em] mb-6 px-2">Workflows</h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -119,7 +116,6 @@ const App: React.FC = () => {
         </div>
       </main>
 
-      {/* Footer / Privacy Note */}
       <footer className="fixed bottom-0 left-0 right-0 p-6 bg-slate-50/90 backdrop-blur-md border-t border-slate-100/50">
         <div className="flex items-center justify-center space-x-2">
           <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
