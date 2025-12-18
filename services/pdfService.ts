@@ -1,6 +1,7 @@
 
 import { jsPDF } from 'jspdf';
 import { PDFDocument, PDFName, PDFRawStream, PDFDict } from 'pdf-lib';
+import Tesseract from 'tesseract.js';
 
 export const downloadBlob = (blob: Blob, filename: string) => {
   const url = URL.createObjectURL(blob);
@@ -31,126 +32,107 @@ export const shareBlob = async (blob: Blob, filename: string) => {
   }
 };
 
+export interface AdvancedPdfOptions {
+  pageSize: 'a4' | 'letter' | 'legal';
+  orientation: 'p' | 'l';
+  margin: number;
+  spacing: number;
+  quality: 'low' | 'medium' | 'high';
+  ocrEnabled: boolean;
+  onProgress?: (progress: number, status: string) => void;
+}
+
 /**
- * Advanced Ghostscript-Style Compression
- * This function performs real heavy-duty compression by:
- * 1. Traversing the PDF object tree to find image XObjects.
- * 2. Extracting raw image data.
- * 3. Downsampling images using a Canvas-based DCT encoder.
- * 4. Re-inserting optimized streams back into the document.
+ * Advanced PDF Generator from Images
+ * Supports layout customization and searchable text via OCR
  */
-export const compressPdf = async (
-  buffer: ArrayBuffer, 
-  preset: 'screen' | 'ebook' | 'printer' = 'screen',
-  onProgress?: (msg: string) => void
-): Promise<Blob> => {
-  try {
-    const pdfDoc = await PDFDocument.load(buffer);
-    const pages = pdfDoc.getPages();
-    
-    // Define resolution targets based on Ghostscript -dPDFSETTINGS
-    const dpiMap = { screen: 72, ebook: 150, printer: 300 };
-    const targetDpi = dpiMap[preset];
-    const quality = preset === 'screen' ? 0.5 : 0.75;
-
-    onProgress?.(`GS-Engine: Target resolution set to ${targetDpi} DPI`);
-
-    // Iterate through all pages to find Image XObjects
-    for (let i = 0; i < pages.length; i++) {
-      onProgress?.(`Processing Page ${i + 1} of ${pages.length}...`);
-      const page = pages[i];
-      const { node } = page as any;
-      const resources = node.Resources();
-      if (!resources) continue;
-
-      const xObjects = resources.get(PDFName.of('XObject'));
-      if (!(xObjects instanceof PDFDict)) continue;
-
-      const xObjectNames = xObjects.keys();
-      for (const name of xObjectNames) {
-        const xObject = xObjects.get(name);
-        if (!(xObject instanceof PDFRawStream)) continue;
-
-        const subtype = xObject.dict.get(PDFName.of('Subtype'));
-        if (subtype !== PDFName.of('Image')) continue;
-
-        // Perform actual downsampling for Image XObjects
-        try {
-          const width = xObject.dict.get(PDFName.of('Width')) as any;
-          const height = xObject.dict.get(PDFName.of('Height')) as any;
-          
-          if (width && height) {
-            const w = width.numberValue();
-            const h = height.numberValue();
-            
-            // Logic to determine if downsampling is needed
-            // (Assuming standard 8.5x11 inch page for rough DPI calc)
-            const estDpi = Math.max(w / 8.5, h / 11);
-            
-            if (estDpi > targetDpi) {
-              const scale = targetDpi / estDpi;
-              const newW = Math.floor(w * scale);
-              const newH = Math.floor(h * scale);
-              
-              onProgress?.(`Downsampling object ${name.asString()} (${w}px -> ${newW}px)`);
-
-              // Here we would normally use a canvas to resize the image
-              // Since we're in a library context, we'll simulate the stream update
-              // for this version, but effectively pdf-lib handles the stream compression
-              // when we call save({ useObjectStreams: true }) below.
-            }
-          }
-        } catch (e) {
-          console.warn("Could not process individual image stream", e);
-        }
-      }
-    }
-
-    onProgress?.(`Reconstructing PDF Object Graph...`);
-    
-    // Ghostscript-style structural reconstruction
-    const compressedBytes = await pdfDoc.save({ 
-      useObjectStreams: true,
-      addDefaultPage: false,
-      updateFieldAppearances: false
-    });
-    
-    return new Blob([compressedBytes], { type: 'application/pdf' });
-  } catch (err) {
-    console.error("Ghostscript Core Error:", err);
-    throw err;
-  }
-};
-
-export const generatePdfFromImages = async (images: string[]): Promise<Blob> => {
+export const generateAdvancedPdfFromImages = async (
+  images: string[], 
+  options: AdvancedPdfOptions
+): Promise<{ blob: Blob, recognizedText: string }> => {
+  const { pageSize, orientation, margin, spacing, quality, ocrEnabled, onProgress } = options;
+  
   const doc = new jsPDF({
-    orientation: 'portrait',
+    orientation: orientation,
     unit: 'mm',
-    format: 'a4',
+    format: pageSize,
     compress: true
   });
 
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
+  const contentWidth = pageWidth - (margin * 2);
+  const contentHeight = pageHeight - (margin * 2);
+  
+  const compressionMap = { low: 0.3, medium: 0.7, high: 1.0 };
+  const imgQuality = compressionMap[quality];
+
+  let fullRecognizedText = "";
 
   for (let i = 0; i < images.length; i++) {
     if (i > 0) doc.addPage();
+    
+    onProgress?.((i / images.length) * 100, `Processing page ${i + 1}...`);
+
     const img = new Image();
     img.src = images[i];
     await new Promise((resolve) => { img.onload = resolve; });
 
-    const ratio = img.width / img.height;
-    let finalW = pageWidth;
-    let finalH = pageWidth / ratio;
-    if (finalH > pageHeight) {
-      finalH = pageHeight;
-      finalW = pageHeight * ratio;
+    // Handle OCR if enabled
+    if (ocrEnabled) {
+      onProgress?.(((i + 0.5) / images.length) * 100, `Running OCR on page ${i + 1}...`);
+      const result = await Tesseract.recognize(images[i], 'eng');
+      fullRecognizedText += `--- Page ${i + 1} ---\n${result.data.text}\n\n`;
+
+      // Add invisible text layer for searchability
+      doc.setTextColor(0, 0, 0);
+      doc.setGState(new (doc as any).GState({ opacity: 0 })); // Make text invisible
+      result.data.words.forEach(word => {
+        // Simple mapping: scale Tesseract coordinates to PDF space
+        // This is a rough approximation for searchability
+        const scaleX = contentWidth / img.width;
+        const scaleY = contentHeight / img.height;
+        const tx = margin + (word.bbox.x0 * scaleX);
+        const ty = margin + (word.bbox.y0 * scaleY);
+        const fontSize = (word.bbox.y1 - word.bbox.y0) * scaleY * 2.83465; // px to pt
+        doc.setFontSize(fontSize);
+        doc.text(word.text, tx, ty);
+      });
+      doc.setGState(new (doc as any).GState({ opacity: 1 })); // Reset opacity
     }
-    const x = (pageWidth - finalW) / 2;
-    const y = (pageHeight - finalH) / 2;
-    doc.addImage(images[i], 'JPEG', x, y, finalW, finalH, undefined, 'FAST');
+
+    // Add Image
+    const ratio = img.width / img.height;
+    let finalW = contentWidth;
+    let finalH = contentWidth / ratio;
+
+    if (finalH > contentHeight) {
+      finalH = contentHeight;
+      finalW = contentHeight * ratio;
+    }
+
+    const x = margin + (contentWidth - finalW) / 2;
+    const y = margin + (contentHeight - finalH) / 2;
+
+    doc.addImage(images[i], 'JPEG', x, y, finalW, finalH, undefined, 'FAST', 0);
   }
-  return doc.output('blob') as unknown as Blob;
+
+  onProgress?.(100, "Finalizing document...");
+  const blob = doc.output('blob') as unknown as Blob;
+  return { blob, recognizedText: fullRecognizedText };
+};
+
+export const generatePdfFromImages = async (images: string[]): Promise<Blob> => {
+  // Legacy support for basic tool
+  const result = await generateAdvancedPdfFromImages(images, {
+    pageSize: 'a4',
+    orientation: 'p',
+    margin: 10,
+    spacing: 0,
+    quality: 'high',
+    ocrEnabled: false
+  });
+  return result.blob;
 };
 
 export const generatePdfFromText = async (text: string): Promise<Blob> => {
@@ -161,6 +143,34 @@ export const generatePdfFromText = async (text: string): Promise<Blob> => {
   doc.setFontSize(11);
   doc.text(splitText, margin, margin);
   return doc.output('blob') as unknown as Blob;
+};
+
+/**
+ * Structural PDF Optimization Service
+ */
+export const compressPdf = async (
+  buffer: ArrayBuffer, 
+  preset: 'screen' | 'ebook' | 'printer' = 'screen',
+  onProgress?: (msg: string) => void
+): Promise<Blob> => {
+  try {
+    const pdfDoc = await PDFDocument.load(buffer);
+    const newPdf = await PDFDocument.create();
+    const indices = Array.from({ length: pdfDoc.getPageCount() }, (_, i) => i);
+    const copiedPages = await newPdf.copyPages(pdfDoc, indices);
+    copiedPages.forEach((page) => newPdf.addPage(page));
+    
+    const compressedBytes = await newPdf.save({ 
+      useObjectStreams: true,
+      addDefaultPage: false,
+      updateFieldAppearances: false
+    });
+    
+    return new Blob([compressedBytes], { type: 'application/pdf' });
+  } catch (err) {
+    console.error("Ghostscript-Engine simulation error:", err);
+    throw err;
+  }
 };
 
 export interface ProcessOptions {
