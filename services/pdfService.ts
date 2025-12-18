@@ -1,10 +1,6 @@
 
 import { jsPDF } from 'jspdf';
 import { PDFDocument } from 'pdf-lib';
-import * as pdfjs from 'pdfjs-dist';
-
-// Initialize PDF.js worker
-pdfjs.GlobalWorkerOptions.workerSrc = 'https://esm.sh/pdfjs-dist@4.10.38/build/pdf.worker.mjs';
 
 export const downloadBlob = (blob: Blob, filename: string) => {
   const url = URL.createObjectURL(blob);
@@ -74,7 +70,7 @@ export const generatePdfFromImages = async (images: string[]): Promise<Blob> => 
     doc.addImage(images[i], 'JPEG', x, y, finalW, finalH, undefined, 'FAST');
   }
   
-  return doc.output('blob');
+  return doc.output('blob') as unknown as Blob;
 };
 
 export const generatePdfFromText = async (text: string): Promise<Blob> => {
@@ -87,19 +83,12 @@ export const generatePdfFromText = async (text: string): Promise<Blob> => {
   
   doc.setFontSize(11);
   doc.text(splitText, margin, margin);
-  return doc.output('blob');
+  return doc.output('blob') as unknown as Blob;
 };
 
-/**
- * Enhanced Structural Compression
- * Focuses on keeping text and formatting 100% intact while reducing metadata
- * and optimizing the internal object structure.
- */
 export const compressPdf = async (pdfBuffer: ArrayBuffer): Promise<Blob> => {
   try {
     const pdfDoc = await PDFDocument.load(pdfBuffer);
-    
-    // Perform purely structural optimization to preserve 100% text/formatting
     const compressedBytes = await pdfDoc.save({ 
       useObjectStreams: true,
       addDefaultPage: false,
@@ -107,42 +96,11 @@ export const compressPdf = async (pdfBuffer: ArrayBuffer): Promise<Blob> => {
       objectsPerStream: 50
     });
 
-    const resultBlob = new Blob([compressedBytes], { type: 'application/pdf' });
-    const originalSize = pdfBuffer.byteLength;
-
-    // If structural optimization didn't hit the 75% target (common with image-heavy files),
-    // we use high-quality rasterization as a fallback ONLY if the user 
-    // explicitly wants that size reduction, but for now we prioritize quality.
-    // In this implementation, we return the structural version for maximum clarity.
-    return resultBlob;
+    return new Blob([compressedBytes], { type: 'application/pdf' });
   } catch (error) {
     console.error("Compression error:", error);
     return new Blob([pdfBuffer], { type: 'application/pdf' });
   }
-};
-
-export const preprocessForOcr = async (base64: string): Promise<string> => {
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.src = base64;
-    img.onload = () => {
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return resolve(base64);
-      canvas.width = img.width;
-      canvas.height = img.height;
-      ctx.drawImage(img, 0, 0);
-      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      const data = imageData.data;
-      for (let i = 0; i < data.length; i += 4) {
-        const grayscale = data[i] * 0.3 + data[i + 1] * 0.59 + data[i + 2] * 0.11;
-        const val = grayscale > 130 ? 255 : 0;
-        data[i] = data[i + 1] = data[i + 2] = val;
-      }
-      ctx.putImageData(imageData, 0, 0);
-      resolve(canvas.toDataURL('image/png'));
-    };
-  });
 };
 
 export interface ProcessOptions {

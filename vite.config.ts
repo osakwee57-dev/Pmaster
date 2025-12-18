@@ -10,13 +10,11 @@ export default defineConfig({
       input: {
         main: './index.html',
       },
-      // Ensure external modules from the import map are not bundled
       external: [
         'react',
         'react-dom',
         'react-dom/client',
         'lucide-react',
-        'tesseract.js',
         'jspdf',
         'pdf-lib',
         'pdfjs-dist',

@@ -1,27 +1,66 @@
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { Camera as CameraIcon, Check, Download, Share2, Type as TypeIcon, Image as ImageIcon, Eye, Plus, Trash2, ChevronLeft, ChevronRight, Loader2, RefreshCw, Sun, SunDim, Edit3, X, Maximize2 } from 'lucide-react';
-import Tesseract from 'tesseract.js';
-import { generatePdfFromImages, generatePdfFromText, downloadBlob, shareBlob, preprocessForOcr } from '../services/pdfService';
-import PdfPreview from './PdfPreview';
+import { Camera as CameraIcon, Check, Download, Share2, Eye, Plus, Trash2, ChevronLeft, ChevronRight, RefreshCw, Sun, SunDim, Edit3, X, Maximize2, FileOutput } from 'lucide-react';
+import { generatePdfFromImages, downloadBlob, shareBlob } from '../services/pdfService';
 import ImageEditor from './ImageEditor';
 
-// Local Image Viewer for full screen photos
-const FullScreenImageViewer: React.FC<{ src: string; onClose: () => void }> = ({ src, onClose }) => (
-  <div className="fixed inset-0 z-[200] bg-black flex flex-col animate-in zoom-in-95 duration-300">
-    <div className="absolute top-6 right-6 z-10">
-      <button onClick={onClose} className="bg-white/10 hover:bg-white/20 text-white p-3 rounded-full backdrop-blur-md border border-white/10 transition-all">
-        <X className="w-6 h-6" />
-      </button>
+const FullScreenGallery: React.FC<{ 
+  images: string[]; 
+  initialIndex: number; 
+  onClose: () => void;
+  onDownload: () => void;
+  onShare: () => void;
+}> = ({ images, initialIndex, onClose, onDownload, onShare }) => {
+  const [index, setIndex] = useState(initialIndex);
+
+  return (
+    <div className="fixed inset-0 z-[200] bg-black flex flex-col animate-in zoom-in-95 duration-300">
+      <div className="absolute top-6 left-6 right-6 z-10 flex justify-between items-center">
+        <button onClick={onClose} className="bg-white/10 hover:bg-white/20 text-white p-3 rounded-full backdrop-blur-md border border-white/10 transition-all">
+          <X className="w-6 h-6" />
+        </button>
+        <div className="bg-white/10 px-4 py-2 rounded-full backdrop-blur-md border border-white/10 text-white text-xs font-black">
+          {index + 1} / {images.length}
+        </div>
+        <div className="flex space-x-2">
+           <button onClick={onShare} className="bg-emerald-500 text-white p-3 rounded-full shadow-lg"><Share2 className="w-6 h-6" /></button>
+           <button onClick={onDownload} className="bg-blue-600 text-white p-3 rounded-full shadow-lg"><Download className="w-6 h-6" /></button>
+        </div>
+      </div>
+
+      <div className="flex-1 flex items-center justify-center p-4 relative">
+        <button 
+          disabled={index === 0}
+          onClick={() => setIndex(i => i - 1)}
+          className="absolute left-6 p-4 text-white/40 hover:text-white disabled:opacity-0 transition-all"
+        >
+          <ChevronLeft className="w-10 h-10" />
+        </button>
+        
+        <img src={images[index]} className="max-w-full max-h-full object-contain shadow-2xl transition-all duration-500" alt={`Scan ${index + 1}`} />
+
+        <button 
+          disabled={index === images.length - 1}
+          onClick={() => setIndex(i => i + 1)}
+          className="absolute right-6 p-4 text-white/40 hover:text-white disabled:opacity-0 transition-all"
+        >
+          <ChevronRight className="w-10 h-10" />
+        </button>
+      </div>
+      
+      <div className="p-10 bg-gradient-to-t from-black/80 to-transparent flex flex-col items-center">
+         <p className="text-[10px] font-black text-white/40 uppercase tracking-[0.3em] mb-4">Inspection View</p>
+         <div className="flex space-x-2 overflow-x-auto max-w-full px-4 scrollbar-hide">
+           {images.map((img, i) => (
+             <button key={i} onClick={() => setIndex(i)} className={`w-12 h-16 rounded-lg overflow-hidden border-2 transition-all ${i === index ? 'border-blue-500 scale-110' : 'border-transparent opacity-40'}`}>
+               <img src={img} className="w-full h-full object-cover" />
+             </button>
+           ))}
+         </div>
+      </div>
     </div>
-    <div className="flex-1 flex items-center justify-center p-4">
-      <img src={src} className="max-w-full max-h-full object-contain shadow-2xl" alt="Full Preview" />
-    </div>
-    <div className="p-10 bg-gradient-to-t from-black/80 to-transparent flex justify-center">
-       <p className="text-[10px] font-black text-white/40 uppercase tracking-[0.3em]">Full Resolution Preview</p>
-    </div>
-  </div>
-);
+  );
+};
 
 const ScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const [stream, setStream] = useState<MediaStream | null>(null);
@@ -29,15 +68,10 @@ const ScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const [activePageIndex, setActivePageIndex] = useState<number>(0);
   const [isCameraActive, setIsCameraActive] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [mode, setMode] = useState<'raw' | 'typed'>('raw');
-  const [progress, setProgress] = useState(0);
-  const [ocrTexts, setOcrTexts] = useState<string[]>([]);
-  const [filename, setFilename] = useState('');
-  const [previewBlob, setPreviewBlob] = useState<Blob | null>(null);
   const [isShutterActive, setIsShutterActive] = useState(false);
   const [torchOn, setTorchOn] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
-  const [fullScreenImage, setFullScreenImage] = useState<string | null>(null);
+  const [showGallery, setShowGallery] = useState(false);
   
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -69,8 +103,6 @@ const ScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       } catch (e) {
         console.error("Torch error", e);
       }
-    } else {
-      alert("Flashlight not supported on this camera.");
     }
   };
 
@@ -97,63 +129,23 @@ const ScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
           setActivePageIndex(newImages.length - 1);
           return newImages;
         });
-        setOcrTexts(prev => [...prev, '']);
       }
     }
   }, [stream]);
 
-  const performOcr = async (index: number) => {
-    const currentImg = capturedImages[index];
-    if (!currentImg) return;
-    
-    setIsProcessing(true);
-    setProgress(0);
-    try {
-      const ocrSource = await preprocessForOcr(currentImg);
-      const worker = await Tesseract.createWorker('eng', 1, {
-        logger: m => {
-          if (m.status === 'recognizing') setProgress(Math.floor(m.progress * 100));
-        }
-      });
-      const { data: { text } } = await worker.recognize(ocrSource);
-      await worker.terminate();
-      
-      setOcrTexts(prev => {
-        const updated = [...prev];
-        updated[index] = text;
-        return updated;
-      });
-    } catch (err) {
-      console.error("OCR Error:", err);
-      alert("OCR failed to recognize text in this image.");
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  const handlePreview = async () => {
+  const handleAction = async (type: 'download' | 'share') => {
     if (capturedImages.length === 0) return;
     setIsProcessing(true);
     try {
-      const blob = mode === 'typed' 
-        ? await generatePdfFromText(ocrTexts.filter(t => t).join('\n\n') || "Empty Document")
-        : await generatePdfFromImages(capturedImages);
-      setPreviewBlob(blob);
+      const blob = await generatePdfFromImages(capturedImages);
+      const filename = `Scan_${Date.now()}.pdf`;
+      if (type === 'download') downloadBlob(blob, filename);
+      else await shareBlob(blob, filename);
     } catch (err) {
-      alert("Generation failed.");
+      alert("Action failed.");
     } finally {
       setIsProcessing(false);
     }
-  };
-
-  const onEditSave = (newImg: string) => {
-    const updated = [...capturedImages];
-    updated[activePageIndex] = newImg;
-    setCapturedImages(updated);
-    setIsEditing(false);
-    const newOcr = [...ocrTexts];
-    newOcr[activePageIndex] = '';
-    setOcrTexts(newOcr);
   };
 
   useEffect(() => {
@@ -179,7 +171,7 @@ const ScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
           )}
         </div>
         <button 
-          onClick={() => { setCapturedImages([]); setOcrTexts([]); startCamera(); }} 
+          onClick={() => { setCapturedImages([]); startCamera(); }} 
           className="text-xs font-bold text-slate-400 hover:text-red-500"
         >
           Reset
@@ -187,14 +179,13 @@ const ScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       </div>
 
       <div className="flex-1 px-4 space-y-6">
-        {/* Viewfinder Area */}
         <div className={`relative w-full aspect-[3/4] rounded-[2.5rem] overflow-hidden shadow-2xl border-4 border-white bg-slate-900 transition-all ${isShutterActive ? 'scale-95 brightness-150' : 'scale-100'}`}>
           {isCameraActive ? (
             <>
               <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover" />
               <button 
                 onClick={toggleTorch}
-                className={`absolute top-6 left-6 p-4 rounded-full backdrop-blur-md transition-all ${torchOn ? 'bg-yellow-400 text-slate-900 shadow-xl shadow-yellow-400/30' : 'bg-black/30 text-white'}`}
+                className={`absolute top-6 left-6 p-4 rounded-full backdrop-blur-md transition-all ${torchOn ? 'bg-yellow-400 text-slate-900 shadow-xl' : 'bg-black/30 text-white'}`}
               >
                 {torchOn ? <Sun className="w-6 h-6" /> : <SunDim className="w-6 h-6" />}
               </button>
@@ -205,30 +196,18 @@ const ScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                 src={capturedImages[activePageIndex]} 
                 className="max-w-full max-h-full object-contain cursor-pointer" 
                 alt="Preview" 
-                onClick={() => setFullScreenImage(capturedImages[activePageIndex])}
+                onClick={() => setShowGallery(true)}
               />
               
               <div className="absolute top-6 left-6 flex space-x-2">
-                <button 
-                  onClick={() => setIsEditing(true)}
-                  className="bg-white text-blue-600 p-3 rounded-full shadow-lg active:scale-90 transition-transform"
-                >
-                  <Edit3 className="w-5 h-5" />
-                </button>
-                <button 
-                  onClick={() => setFullScreenImage(capturedImages[activePageIndex])}
-                  className="bg-white text-slate-800 p-3 rounded-full shadow-lg active:scale-90 transition-transform"
-                >
-                  <Maximize2 className="w-5 h-5" />
-                </button>
+                <button onClick={() => setIsEditing(true)} className="bg-white text-blue-600 p-3 rounded-full shadow-lg active:scale-90 transition-transform"><Edit3 className="w-5 h-5" /></button>
+                <button onClick={() => setShowGallery(true)} className="bg-white text-slate-800 p-3 rounded-full shadow-lg active:scale-90 transition-transform"><Maximize2 className="w-5 h-5" /></button>
               </div>
 
               <button 
                 onClick={() => {
                   const newImages = capturedImages.filter((_, i) => i !== activePageIndex);
-                  const newOcr = ocrTexts.filter((_, i) => i !== activePageIndex);
                   setCapturedImages(newImages);
-                  setOcrTexts(newOcr);
                   if (newImages.length === 0) startCamera();
                   else setActivePageIndex(Math.max(0, activePageIndex - 1));
                 }}
@@ -241,12 +220,11 @@ const ScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
           <canvas ref={canvasRef} className="hidden" />
         </div>
 
-        {/* Action Controls */}
         {isCameraActive ? (
           <div className="flex flex-col items-center space-y-8 pb-10">
             <div className="flex items-center space-x-12">
               <button 
-                onClick={() => capturedImages.length > 0 && setFullScreenImage(capturedImages[capturedImages.length - 1])}
+                onClick={() => capturedImages.length > 0 && setShowGallery(true)}
                 className="w-12 h-12 rounded-full overflow-hidden border-2 border-white shadow-lg bg-slate-200"
               >
                 {capturedImages.length > 0 && <img src={capturedImages[capturedImages.length - 1]} className="w-full h-full object-cover" />}
@@ -260,61 +238,44 @@ const ScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                 </div>
               </button>
               {capturedImages.length > 0 ? (
-                <button 
-                  onClick={stopCamera}
-                  className="w-12 h-12 bg-blue-600 text-white rounded-full flex items-center justify-center shadow-lg active:scale-95 transition-all"
-                >
-                  <Check className="w-6 h-6" />
-                </button>
-              ) : (
-                <div className="w-12" />
-              )}
+                <button onClick={stopCamera} className="w-12 h-12 bg-blue-600 text-white rounded-full flex items-center justify-center shadow-lg active:scale-95 transition-all"><Check className="w-6 h-6" /></button>
+              ) : <div className="w-12" />}
             </div>
           </div>
         ) : (
           <div className="space-y-6 pb-20">
             <div className="flex space-x-3 overflow-x-auto pb-4 px-2 scrollbar-hide">
               {capturedImages.map((img, idx) => (
-                <button 
-                  key={idx} 
-                  onClick={() => setActivePageIndex(idx)}
-                  className={`relative flex-shrink-0 w-20 h-24 rounded-2xl overflow-hidden border-4 transition-all ${activePageIndex === idx ? 'border-blue-600 scale-105 shadow-xl' : 'border-transparent opacity-60'}`}
-                >
+                <button key={idx} onClick={() => setActivePageIndex(idx)} className={`relative flex-shrink-0 w-20 h-24 rounded-2xl overflow-hidden border-4 transition-all ${activePageIndex === idx ? 'border-blue-600 scale-105 shadow-xl' : 'border-transparent opacity-60'}`}>
                   <img src={img} className="w-full h-full object-cover" />
                 </button>
               ))}
-              <button 
-                onClick={startCamera}
-                className="flex-shrink-0 w-20 h-24 rounded-2xl border-4 border-dashed border-slate-300 bg-white flex flex-col items-center justify-center space-y-1 text-slate-400"
-              >
+              <button onClick={startCamera} className="flex-shrink-0 w-20 h-24 rounded-2xl border-4 border-dashed border-slate-300 bg-white flex flex-col items-center justify-center space-y-1 text-slate-400">
                 <Plus className="w-6 h-6" />
                 <span className="text-[10px] font-bold uppercase">Add</span>
               </button>
             </div>
 
-            <div className="bg-white p-6 rounded-[2rem] shadow-xl border border-slate-100 space-y-6">
-              <div className="flex bg-slate-100 p-1.5 rounded-2xl">
-                <button onClick={() => setMode('raw')} className={`flex-1 py-3 rounded-xl ${mode === 'raw' ? 'bg-white shadow text-blue-600 font-black' : 'text-slate-500 font-bold'}`}>Original</button>
-                <button onClick={() => { setMode('typed'); performOcr(activePageIndex); }} className={`flex-1 py-3 rounded-xl ${mode === 'typed' ? 'bg-white shadow text-blue-600 font-black' : 'text-slate-500 font-bold'}`}>OCR Text</button>
-              </div>
-
-              {mode === 'typed' && (
-                <textarea 
-                  value={ocrTexts[activePageIndex] || ''}
-                  onChange={(e) => {
-                    const updated = [...ocrTexts];
-                    updated[activePageIndex] = e.target.value;
-                    setOcrTexts(updated);
-                  }}
-                  className="w-full h-40 p-4 rounded-2xl bg-slate-50 border border-slate-100 text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none"
-                />
-              )}
-
+            <div className="bg-white p-6 rounded-[2rem] shadow-xl border border-slate-100 grid grid-cols-2 gap-4">
               <button 
-                onClick={handlePreview}
-                className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black shadow-lg flex items-center justify-center active:scale-95 transition-all"
+                onClick={() => handleAction('download')}
+                disabled={isProcessing}
+                className="flex flex-col items-center justify-center bg-blue-600 text-white py-6 rounded-2xl font-black shadow-lg hover:bg-blue-700 active:scale-95 transition-all"
               >
-                <Eye className="w-5 h-5 mr-2" /> Preview & Save PDF
+                <Download className="w-6 h-6 mb-2" /> Download PDF
+              </button>
+              <button 
+                onClick={() => handleAction('share')}
+                disabled={isProcessing}
+                className="flex flex-col items-center justify-center bg-emerald-600 text-white py-6 rounded-2xl font-black shadow-lg hover:bg-emerald-700 active:scale-95 transition-all"
+              >
+                <Share2 className="w-6 h-6 mb-2" /> Share PDF
+              </button>
+              <button 
+                onClick={() => setShowGallery(true)}
+                className="col-span-2 py-4 bg-slate-900 text-white rounded-2xl font-black shadow-lg flex items-center justify-center active:scale-95 transition-all"
+              >
+                <Eye className="w-5 h-5 mr-2" /> Inspect Photos Full Screen
               </button>
             </div>
           </div>
@@ -324,22 +285,23 @@ const ScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       {isEditing && (
         <ImageEditor 
           image={capturedImages[activePageIndex]} 
-          onSave={onEditSave}
+          onSave={(img) => {
+            const updated = [...capturedImages];
+            updated[activePageIndex] = img;
+            setCapturedImages(updated);
+            setIsEditing(false);
+          }}
           onCancel={() => setIsEditing(false)}
         />
       )}
 
-      {fullScreenImage && (
-        <FullScreenImageViewer src={fullScreenImage} onClose={() => setFullScreenImage(null)} />
-      )}
-
-      {previewBlob && (
-        <PdfPreview 
-          blob={previewBlob} 
-          filename={filename.trim() || `Scan_${Date.now()}.pdf`} 
-          onClose={() => setPreviewBlob(null)}
-          onDownload={() => downloadBlob(previewBlob, filename || `Scan_${Date.now()}.pdf`)}
-          onShare={() => shareBlob(previewBlob, filename || `Scan_${Date.now()}.pdf`)}
+      {showGallery && (
+        <FullScreenGallery 
+          images={capturedImages} 
+          initialIndex={activePageIndex} 
+          onClose={() => setShowGallery(false)}
+          onDownload={() => handleAction('download')}
+          onShare={() => handleAction('share')}
         />
       )}
     </div>
