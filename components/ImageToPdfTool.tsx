@@ -1,9 +1,22 @@
 
 import React, { useState } from 'react';
-import { ImageIcon, Download, Share2, Plus, X, Eye, ArrowLeft, ArrowRight, Edit3 } from 'lucide-react';
+import { ImageIcon, Download, Share2, Plus, X, Eye, ArrowLeft, ArrowRight, Edit3, Maximize2 } from 'lucide-react';
 import { generatePdfFromImages, downloadBlob, shareBlob } from '../services/pdfService';
 import PdfPreview from './PdfPreview';
 import ImageEditor from './ImageEditor';
+
+const FullScreenImageViewer: React.FC<{ src: string; onClose: () => void }> = ({ src, onClose }) => (
+  <div className="fixed inset-0 z-[200] bg-black flex flex-col animate-in zoom-in-95 duration-300">
+    <div className="absolute top-6 right-6 z-10">
+      <button onClick={onClose} className="bg-white/10 hover:bg-white/20 text-white p-3 rounded-full backdrop-blur-md border border-white/10 transition-all">
+        <X className="w-6 h-6" />
+      </button>
+    </div>
+    <div className="flex-1 flex items-center justify-center p-4">
+      <img src={src} className="max-w-full max-h-full object-contain" alt="Full Preview" />
+    </div>
+  </div>
+);
 
 const ImageToPdfTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const [images, setImages] = useState<string[]>([]);
@@ -11,6 +24,7 @@ const ImageToPdfTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [previewBlob, setPreviewBlob] = useState<Blob | null>(null);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [fullScreenImage, setFullScreenImage] = useState<string | null>(null);
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []) as File[];
@@ -104,6 +118,14 @@ const ImageToPdfTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                 </div>
                 <div className="flex justify-center space-x-2">
                   <button 
+                    onClick={() => setFullScreenImage(img)}
+                    className="bg-white text-slate-900 p-2 rounded-full shadow-lg"
+                  >
+                    <Maximize2 className="w-4 h-4" />
+                  </button>
+                </div>
+                <div className="flex justify-center space-x-2">
+                  <button 
                     onClick={() => moveImage(idx, 'left')}
                     disabled={idx === 0}
                     className="bg-white/80 text-slate-800 p-1.5 rounded-full disabled:opacity-30"
@@ -147,6 +169,10 @@ const ImageToPdfTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
           onSave={handleEditSave}
           onCancel={() => setEditingIndex(null)}
         />
+      )}
+
+      {fullScreenImage && (
+        <FullScreenImageViewer src={fullScreenImage} onClose={() => setFullScreenImage(null)} />
       )}
 
       {previewBlob && (

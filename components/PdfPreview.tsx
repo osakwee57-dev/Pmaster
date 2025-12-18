@@ -1,6 +1,6 @@
 
-import React, { useMemo, useEffect } from 'react';
-import { X, Download, Share2, ExternalLink, FileWarning } from 'lucide-react';
+import React, { useMemo, useEffect, useState, useRef } from 'react';
+import { X, Download, Share2, ExternalLink, FileWarning, Maximize2, Loader2, FileText, Minimize2 } from 'lucide-react';
 
 interface PdfPreviewProps {
   blob: Blob;
@@ -11,6 +11,10 @@ interface PdfPreviewProps {
 }
 
 const PdfPreview: React.FC<PdfPreviewProps> = ({ blob, filename, onClose, onDownload, onShare }) => {
+  const [isLoading, setIsLoading] = useState(true);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  
   const pdfUrl = useMemo(() => {
     try {
       const pdfBlob = new Blob([blob], { type: 'application/pdf' });
@@ -22,77 +26,123 @@ const PdfPreview: React.FC<PdfPreviewProps> = ({ blob, filename, onClose, onDown
   }, [blob]);
 
   useEffect(() => {
+    const timer = setTimeout(() => setIsLoading(false), 800);
     return () => {
+      clearTimeout(timer);
       if (pdfUrl) URL.revokeObjectURL(pdfUrl);
     };
   }, [pdfUrl]);
 
+  const toggleNativeFullscreen = () => {
+    if (!containerRef.current) return;
+
+    if (!document.fullscreenElement) {
+      containerRef.current.requestFullscreen().catch(err => {
+        console.error(`Error attempting to enable full-screen mode: ${err.message}`);
+      });
+      setIsFullscreen(true);
+    } else {
+      document.exitFullscreen();
+      setIsFullscreen(false);
+    }
+  };
+
+  useEffect(() => {
+    const handleFsChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener('fullscreenchange', handleFsChange);
+    return () => document.removeEventListener('fullscreenchange', handleFsChange);
+  }, []);
+
+  const openInNewTab = () => {
+    if (pdfUrl) window.open(pdfUrl, '_blank');
+  };
+
   return (
-    <div className="fixed inset-0 z-[100] bg-black/95 backdrop-blur-xl p-4 md:p-8 flex flex-col items-center justify-center animate-in fade-in duration-300">
-      <div className="w-full max-w-5xl h-full flex flex-col bg-white rounded-[3rem] overflow-hidden shadow-2xl border border-white/10">
-        <div className="p-6 border-b flex justify-between items-center bg-slate-50/50 backdrop-blur-sm">
-          <div className="flex items-center space-x-4">
-            <div className="w-12 h-12 bg-blue-600 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-500/30">
-              <ExternalLink className="w-6 h-6 text-white" />
-            </div>
-            <div>
-              <h3 className="font-black text-slate-900 tracking-tight leading-none mb-1">Preview Result</h3>
-              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest truncate max-w-[180px]">{filename}</p>
-            </div>
+    <div 
+      ref={containerRef}
+      className="fixed inset-0 z-[100] bg-black flex flex-col animate-in fade-in duration-300"
+    >
+      {/* Top Navigation */}
+      <div className={`px-6 py-4 flex justify-between items-center z-20 transition-all ${isFullscreen ? 'bg-black/80 backdrop-blur border-b border-white/10' : 'bg-white border-b border-slate-200'}`}>
+        <div className="flex items-center space-x-4 overflow-hidden">
+          <div className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-lg ${isFullscreen ? 'bg-white/10' : 'bg-blue-600 shadow-blue-500/20'}`}>
+            <FileText className={`w-5 h-5 ${isFullscreen ? 'text-white' : 'text-white'}`} />
           </div>
+          <div className="overflow-hidden">
+            <h3 className={`font-black text-sm tracking-tight leading-none mb-1 truncate ${isFullscreen ? 'text-white' : 'text-slate-900'}`}>{filename}</h3>
+            <p className={`text-[10px] font-bold uppercase tracking-widest ${isFullscreen ? 'text-white/40' : 'text-slate-400'}`}>Preview Mode</p>
+          </div>
+        </div>
+
+        <div className="flex items-center space-x-2 shrink-0">
+          <button 
+            onClick={toggleNativeFullscreen}
+            className={`p-2.5 rounded-full border transition-all active:scale-90 ${isFullscreen ? 'bg-white/10 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'}`}
+            title="Toggle Fullscreen"
+          >
+            {isFullscreen ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
+          </button>
           <button 
             onClick={onClose}
-            className="p-3 bg-white hover:bg-slate-100 text-slate-900 rounded-full shadow-md border border-slate-200 transition-all active:scale-90"
+            className="p-2.5 bg-red-500 hover:bg-red-600 text-white rounded-full border border-red-400 transition-all active:scale-90 shadow-lg shadow-red-500/20"
+            title="Close"
           >
-            <X className="w-6 h-6" />
-          </button>
-        </div>
-
-        <div className="flex-1 bg-slate-100 overflow-hidden relative group">
-          {pdfUrl ? (
-             <object 
-              data={pdfUrl} 
-              type="application/pdf" 
-              className="w-full h-full"
-            >
-              <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-10 space-y-6">
-                <div className="w-20 h-20 bg-slate-200 rounded-full flex items-center justify-center">
-                  <FileWarning className="w-10 h-10 text-slate-400" />
-                </div>
-                <div>
-                  <h4 className="text-xl font-black text-slate-800">Preview Unavailable</h4>
-                  <p className="text-slate-500 font-medium max-w-xs mt-2">Your browser can't display the preview, but you can still download or share the document.</p>
-                </div>
-                <button 
-                  onClick={() => window.open(pdfUrl, '_blank')}
-                  className="bg-slate-900 text-white px-8 py-3 rounded-2xl font-black shadow-xl active:scale-95 transition-all"
-                >
-                  Open in New Tab
-                </button>
-              </div>
-            </object>
-          ) : (
-            <div className="w-full h-full flex items-center justify-center text-slate-400">
-              Generating Preview...
-            </div>
-          )}
-        </div>
-
-        <div className="p-8 grid grid-cols-2 gap-4 bg-slate-50/80 backdrop-blur-sm border-t">
-          <button 
-            onClick={onDownload}
-            className="flex items-center justify-center bg-blue-600 text-white py-5 rounded-[1.5rem] font-black shadow-xl shadow-blue-500/20 hover:bg-blue-700 active:scale-95 transition-all"
-          >
-            <Download className="w-5 h-5 mr-2" /> Save PDF
-          </button>
-          <button 
-            onClick={onShare}
-            className="flex items-center justify-center bg-emerald-600 text-white py-5 rounded-[1.5rem] font-black shadow-xl shadow-emerald-500/20 hover:bg-emerald-700 active:scale-95 transition-all"
-          >
-            <Share2 className="w-5 h-5 mr-2" /> Share PDF
+            <X className="w-5 h-5" />
           </button>
         </div>
       </div>
+
+      {/* Main Content Area */}
+      <div className="flex-1 relative overflow-hidden bg-slate-900 flex items-center justify-center">
+        {isLoading && (
+          <div className="absolute inset-0 z-10 bg-slate-900 flex flex-col items-center justify-center space-y-4">
+            <Loader2 className="w-10 h-10 text-blue-500 animate-spin" />
+            <p className="text-[10px] font-black text-white/40 uppercase tracking-widest">Loading Immersive Viewer</p>
+          </div>
+        )}
+
+        {pdfUrl ? (
+          <div className="w-full h-full">
+            <iframe 
+              src={`${pdfUrl}#toolbar=0&navpanes=0&scrollbar=1`}
+              className="w-full h-full border-none"
+              title="PDF Full Preview"
+              onLoad={() => setIsLoading(false)}
+            />
+          </div>
+        ) : (
+          <div className="flex flex-col items-center text-center p-10 space-y-6">
+            <FileWarning className="w-16 h-16 text-slate-500" />
+            <div className="text-white">
+              <h4 className="text-xl font-black">Preview Restricted</h4>
+              <p className="text-slate-400 font-medium max-w-xs mt-2 text-sm">This browser restricted local PDF rendering. You can still download the file below.</p>
+            </div>
+            <button onClick={openInNewTab} className="bg-white text-black px-8 py-3 rounded-2xl font-black shadow-xl flex items-center">
+              <ExternalLink className="w-4 h-4 mr-2" /> Open In External Tab
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Footer Controls (Hidden in native fullscreen for maximum space) */}
+      {!isFullscreen && (
+        <div className="p-6 md:p-8 bg-white border-t border-slate-100 flex flex-col sm:flex-row gap-4 shadow-[0_-10px_30px_rgba(0,0,0,0.05)]">
+          <button 
+            onClick={onDownload}
+            className="flex-1 flex items-center justify-center bg-blue-600 text-white py-5 rounded-2xl font-black shadow-xl shadow-blue-500/20 hover:bg-blue-700 active:scale-95 transition-all"
+          >
+            <Download className="w-5 h-5 mr-3" /> Download
+          </button>
+          <button 
+            onClick={onShare}
+            className="flex-1 flex items-center justify-center bg-emerald-600 text-white py-5 rounded-2xl font-black shadow-xl shadow-emerald-500/20 hover:bg-emerald-700 active:scale-95 transition-all"
+          >
+            <Share2 className="w-5 h-5 mr-3" /> Share
+          </button>
+        </div>
+      )}
     </div>
   );
 };
