@@ -1,4 +1,3 @@
-
 import { jsPDF } from 'jspdf';
 import { PDFDocument } from 'pdf-lib';
 
@@ -33,8 +32,8 @@ export const shareBlob = async (blob: Blob, filename: string) => {
 
 /**
  * High-Efficiency PDF Shrink
- * Uses pdf-lib to reconstruct the document. By default, copying pages 
- * to a new document and saving with object streams strips metadata, 
+ * Uses pdf-lib to reconstruct the document. By copying pages 
+ * to a new document and saving with object streams, it strips metadata, 
  * orphaned objects, and re-compresses internal streams.
  */
 export const compressPdf = async (buffer: ArrayBuffer): Promise<Blob> => {
