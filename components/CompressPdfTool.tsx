@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { FileDown, Download, Share2, FileCheck, Loader2, Eye, Zap, ShieldAlert, ArrowRight } from 'lucide-react';
+import { FileDown, Download, Share2, FileCheck, Loader2, Eye, Zap, ShieldAlert, ArrowRight, Info } from 'lucide-react';
 import { compressPdf, downloadBlob, shareBlob } from '../services/pdfService';
 import PdfPreview from './PdfPreview';
 
@@ -11,6 +11,7 @@ const CompressPdfTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [compressionRatio, setCompressionRatio] = useState<number>(0);
+  const [isAlreadyOptimized, setIsAlreadyOptimized] = useState(false);
 
   const formatSize = (bytes: number) => {
     if (bytes === 0) return '0 Bytes';
@@ -28,6 +29,7 @@ const CompressPdfTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       setFilename(selected.name.replace('.pdf', ''));
       setCompressedBlob(null);
       setCompressionRatio(0);
+      setIsAlreadyOptimized(false);
     } else {
       alert("Please select a valid PDF file.");
     }
@@ -36,13 +38,23 @@ const CompressPdfTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const handleCompress = async () => {
     if (!file) return;
     setIsProcessing(true);
+    setIsAlreadyOptimized(false);
+    
     try {
       const buffer = await file.arrayBuffer();
       const resultBlob = await compressPdf(buffer);
-      setCompressedBlob(resultBlob);
       
-      const ratio = ((file.size - resultBlob.size) / file.size) * 100;
-      setCompressionRatio(Math.max(0, ratio));
+      // Safety check: if the reconstruction didn't yield a smaller file 
+      // (often happens with already optimized or tiny files), use the original.
+      if (resultBlob.size >= file.size) {
+        setCompressedBlob(file);
+        setCompressionRatio(0);
+        setIsAlreadyOptimized(true);
+      } else {
+        setCompressedBlob(resultBlob);
+        const ratio = ((file.size - resultBlob.size) / file.size) * 100;
+        setCompressionRatio(Math.max(0, ratio));
+      }
     } catch (err) {
       console.error(err);
       alert("Compression failed.");
@@ -67,12 +79,12 @@ const CompressPdfTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   };
 
   return (
-    <div className="flex flex-col max-w-2xl mx-auto p-4 space-y-6 pb-20">
-      <div className="w-full flex justify-between items-center mb-4">
+    <div className="flex flex-col max-w-2xl mx-auto p-4 space-y-6 pb-20 min-h-screen">
+      <div className="w-full flex justify-between items-center mb-4 pt-8">
         <button onClick={onBack} className="text-blue-600 font-black p-2 hover:bg-blue-50 rounded-xl transition-all">← Back</button>
         <div className="text-right">
           <h2 className="text-2xl font-black text-slate-900 leading-none">Power Compress</h2>
-          <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest mt-1">75% Target Reduction</p>
+          <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest mt-1">Structural Reconstruction</p>
         </div>
       </div>
 
@@ -86,7 +98,7 @@ const CompressPdfTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
               <div className="flex-1 overflow-hidden">
                 <p className="font-black text-slate-900 truncate">{file.name}</p>
                 <div className="flex items-center mt-1">
-                  <span className="text-[10px] font-black bg-slate-200 px-2 py-0.5 rounded-full text-slate-600 uppercase">Original</span>
+                  <span className="text-[10px] font-black bg-slate-200 px-2 py-0.5 rounded-full text-slate-600 uppercase">Input File</span>
                   <p className="text-xs text-slate-500 font-bold ml-2">{formatSize(file.size)}</p>
                 </div>
               </div>
@@ -99,7 +111,7 @@ const CompressPdfTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
             </div>
             
             <div className="space-y-2">
-              <label className="text-[10px] font-black uppercase text-slate-400 px-2 tracking-widest">New File Name</label>
+              <label className="text-[10px] font-black uppercase text-slate-400 px-2 tracking-widest">Target Filename</label>
               <input 
                 type="text"
                 placeholder="Optimized_File"
@@ -110,26 +122,28 @@ const CompressPdfTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
             </div>
           </div>
         ) : (
-          <label className="flex flex-col items-center cursor-pointer py-16 w-full">
-            <div className="w-28 h-28 bg-blue-50 rounded-full flex items-center justify-center mb-8 shadow-inner">
+          <label className="flex flex-col items-center cursor-pointer py-16 w-full group">
+            <div className="w-28 h-28 bg-blue-50 rounded-full flex items-center justify-center mb-8 shadow-inner transition-transform group-hover:scale-110 duration-500">
               <div className="w-20 h-20 bg-blue-600 rounded-full flex items-center justify-center shadow-xl shadow-blue-500/30">
                 <FileDown className="w-10 h-10 text-white" />
               </div>
             </div>
             <p className="text-slate-900 font-black text-2xl mb-2">Select PDF</p>
-            <p className="text-slate-400 text-sm font-bold uppercase tracking-widest">High-Efficiency mode active</p>
+            <p className="text-slate-400 text-sm font-bold uppercase tracking-widest">High-Efficiency Reconstruction</p>
             <input type="file" accept="application/pdf" onChange={handleFileUpload} className="hidden" />
           </label>
         )}
       </div>
 
-      <div className="bg-blue-900 text-white p-6 rounded-[2.5rem] flex items-start space-x-4 shadow-xl">
+      <div className="bg-slate-900 text-white p-6 rounded-[2.5rem] flex items-start space-x-4 shadow-xl">
         <div className="p-3 bg-blue-500/20 rounded-2xl">
           <Zap className="w-6 h-6 text-blue-300" />
         </div>
         <div>
-          <h4 className="font-black text-sm uppercase tracking-wider">75% Reduction Strategy</h4>
-          <p className="text-blue-200 text-xs font-medium leading-relaxed mt-1">Our engine uses a hybrid method: structural packing for text and smart-rasterization for heavy graphics to guarantee minimum size.</p>
+          <h4 className="font-black text-sm uppercase tracking-wider">How it works</h4>
+          <p className="text-slate-400 text-xs font-medium leading-relaxed mt-1">
+            We clone your PDF into a new structure, stripping orphaned data blocks and unused metadata. This effectively "tightens" the file format for minimal overhead.
+          </p>
         </div>
       </div>
 
@@ -137,48 +151,58 @@ const CompressPdfTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         <button 
           disabled={isProcessing}
           onClick={handleCompress}
-          className="w-full bg-slate-900 text-white py-6 rounded-[2rem] font-black text-xl shadow-2xl hover:bg-black transition-all flex items-center justify-center disabled:opacity-70 active:scale-95 group"
+          className="w-full bg-blue-600 text-white py-6 rounded-[2rem] font-black text-xl shadow-2xl hover:bg-blue-700 transition-all flex items-center justify-center disabled:opacity-70 active:scale-95 group"
         >
           {isProcessing ? (
-            <><Loader2 className="w-6 h-6 mr-3 animate-spin" /> Analyzing & Optimizing...</>
+            <><Loader2 className="w-6 h-6 mr-3 animate-spin" /> Reconstructing structure...</>
           ) : (
-            <span className="flex items-center">Start Compression <Zap className="w-5 h-5 ml-2 group-hover:fill-blue-400 transition-all" /></span>
+            <span className="flex items-center">Optimize PDF <Zap className="w-5 h-5 ml-2 group-hover:fill-blue-400 transition-all" /></span>
           )}
         </button>
       )}
 
       {compressedBlob && file && (
         <div className="space-y-4 animate-in fade-in slide-in-from-bottom-6 duration-700">
-          <div className="bg-emerald-500 p-8 rounded-[3rem] text-white shadow-2xl relative overflow-hidden">
+          <div className={`${isAlreadyOptimized ? 'bg-slate-800' : 'bg-emerald-500'} p-8 rounded-[3rem] text-white shadow-2xl relative overflow-hidden transition-colors duration-500`}>
             <div className="relative z-10">
               <div className="flex items-center mb-4">
-                <FileCheck className="w-6 h-6 mr-2" />
-                <p className="font-black uppercase tracking-widest text-xs opacity-80">Optimization Finished</p>
+                {isAlreadyOptimized ? <Info className="w-6 h-6 mr-2" /> : <FileCheck className="w-6 h-6 mr-2" />}
+                <p className="font-black uppercase tracking-widest text-xs opacity-80">
+                  {isAlreadyOptimized ? 'Perfectly Optimized' : 'Compression Complete'}
+                </p>
               </div>
-              <div className="flex items-end space-x-4 mb-6">
-                <div className="text-center">
-                   <p className="text-[10px] font-black uppercase opacity-60">Before</p>
-                   <p className="text-sm font-bold">{formatSize(file.size)}</p>
+              
+              {isAlreadyOptimized ? (
+                <div className="space-y-2">
+                   <h3 className="text-2xl font-black leading-tight">Already at minimum size.</h3>
+                   <p className="text-white/60 text-xs">Your PDF structure is already as efficient as it can be for browser-based optimization.</p>
                 </div>
-                <ArrowRight className="w-8 h-8 mb-1 opacity-40" />
-                <div className="text-center">
-                   <p className="text-[10px] font-black uppercase opacity-60">After</p>
-                   <p className="text-xl font-black">{formatSize(compressedBlob.size)}</p>
+              ) : (
+                <div className="flex items-end space-x-4 mb-6">
+                  <div className="text-center">
+                    <p className="text-[10px] font-black uppercase opacity-60">Before</p>
+                    <p className="text-sm font-bold">{formatSize(file.size)}</p>
+                  </div>
+                  <ArrowRight className="w-8 h-8 mb-1 opacity-40" />
+                  <div className="text-center">
+                    <p className="text-[10px] font-black uppercase opacity-60">After</p>
+                    <p className="text-xl font-black">{formatSize(compressedBlob.size)}</p>
+                  </div>
+                  <div className="ml-auto bg-white/20 px-6 py-2 rounded-2xl">
+                    <h3 className="text-3xl font-black">-{compressionRatio.toFixed(0)}%</h3>
+                  </div>
                 </div>
-              </div>
-              <div className="inline-block bg-white/20 px-6 py-2 rounded-2xl">
-                <h3 className="text-3xl font-black">-{compressionRatio.toFixed(0)}%</h3>
-              </div>
+              )}
             </div>
-            <FileCheck className="absolute -bottom-10 -right-10 w-48 h-48 opacity-10" />
+            <Zap className="absolute -bottom-10 -right-10 w-48 h-48 opacity-10" />
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <button 
               onClick={() => setShowPreview(true)}
-              className="col-span-2 flex items-center justify-center bg-indigo-600 text-white py-5 rounded-[1.5rem] font-black shadow-lg hover:bg-indigo-700 active:scale-95 transition-all"
+              className="col-span-2 flex items-center justify-center bg-slate-900 text-white py-5 rounded-[1.5rem] font-black shadow-lg hover:bg-black active:scale-95 transition-all"
             >
-              <Eye className="w-5 h-5 mr-2" /> Preview & Verify
+              <Eye className="w-5 h-5 mr-2" /> Inspect Result
             </button>
             <button 
               onClick={handleDownload}

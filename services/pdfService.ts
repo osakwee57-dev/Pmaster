@@ -86,9 +86,19 @@ export const generatePdfFromText = async (text: string): Promise<Blob> => {
   return doc.output('blob') as unknown as Blob;
 };
 
+/**
+ * Enhanced Compression using Document Reconstruction.
+ * Copies pages to a new document to strip orphaned objects and optimizes object streams.
+ */
 export const compressPdf = async (pdfBuffer: ArrayBuffer): Promise<Blob> => {
   try {
-    const pdfDoc = await PDFDocument.load(pdfBuffer);
+    const srcDoc = await PDFDocument.load(pdfBuffer);
+    const pdfDoc = await PDFDocument.create();
+    
+    // Page Cloning: Strips unused data from the source document structure
+    const copiedPages = await pdfDoc.copyPages(srcDoc, srcDoc.getPageIndices());
+    copiedPages.forEach((page) => pdfDoc.addPage(page));
+
     const compressedBytes = await pdfDoc.save({ 
       useObjectStreams: true,
       addDefaultPage: false,
