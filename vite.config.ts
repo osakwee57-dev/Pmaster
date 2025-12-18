@@ -6,10 +6,12 @@ export default defineConfig({
   plugins: [react()],
   build: {
     outDir: 'dist',
+    emptyOutDir: true,
     rollupOptions: {
       input: {
         main: './index.html',
       },
+      // These are handled by the browser's importmap in index.html
       external: [
         'react',
         'react-dom',
