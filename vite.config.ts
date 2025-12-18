@@ -1,3 +1,4 @@
+
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
@@ -19,6 +20,7 @@ export default defineConfig({
         'lucide-react',
         'jspdf',
         'pdf-lib',
+        'tesseract.js',
         '@vercel/analytics/react'
       ],
     },
