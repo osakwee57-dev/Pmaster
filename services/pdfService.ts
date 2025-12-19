@@ -63,7 +63,6 @@ const reencodeImage = async (base64: string, quality: number): Promise<string> =
 
 /**
  * Advanced PDF Generator from Images
- * Supports layout customization, quality re-encoding, and searchable text via OCR
  */
 export const generateAdvancedPdfFromImages = async (
   images: string[], 
@@ -95,33 +94,19 @@ export const generateAdvancedPdfFromImages = async (
 
     let currentImg = images[i];
     
-    // Quality adjustment
     if (quality !== 'high') {
       onProgress?.(((i + 0.2) / images.length) * 100, `Optimizing quality for page ${i + 1}...`);
       currentImg = await reencodeImage(images[i], targetQuality);
     }
 
-    // OCR Logic
     if (ocrEnabled) {
       onProgress?.(((i + 0.5) / images.length) * 100, `Analyzing text on page ${i + 1}...`);
       const result = await Tesseract.recognize(currentImg, 'eng');
       fullRecognizedText += `--- Page ${i + 1} ---\n${result.data.text}\n\n`;
 
-      // Create invisible text layer for searchability
       doc.setGState(new (doc as any).GState({ opacity: 0 }));
-      result.data.words.forEach(word => {
-        const imgObj = new Image();
-        imgObj.src = currentImg;
-        const scaleX = contentWidth / 210; // Simple ratio
-        const scaleY = contentHeight / 297;
-        
-        // This is a simplified mapping for searchable text placement
-        // In a pro engine, we'd map word.bbox coordinates to PDF units
-        // For now, we provide general text data to make it searchable
-      });
-      // Fallback: Add page text content at the bottom of the page (invisible)
       doc.setFontSize(1);
-      doc.text(result.data.text.substring(0, 500), margin, pageHeight - margin);
+      doc.text(result.data.text.substring(0, 1000), margin, pageHeight - margin);
       doc.setGState(new (doc as any).GState({ opacity: 1 }));
     }
 
@@ -161,19 +146,48 @@ export const generatePdfFromImages = async (images: string[]): Promise<Blob> => 
   return result.blob;
 };
 
+/**
+ * Fixed Multi-page Text to PDF conversion
+ */
 export const generatePdfFromText = async (text: string): Promise<Blob> => {
-  const doc = new jsPDF({ compress: true });
+  const doc = new jsPDF({ 
+    orientation: 'p',
+    unit: 'mm',
+    format: 'a4',
+    compress: true 
+  });
+
   const margin = 20;
+  const pageHeight = doc.internal.pageSize.getHeight();
   const pageWidth = doc.internal.pageSize.getWidth();
-  const splitText = doc.splitTextToSize(text, pageWidth - margin * 2);
+  const contentWidth = pageWidth - (margin * 2);
+  const bottomMargin = margin;
+  
   doc.setFontSize(11);
-  doc.text(splitText, margin, margin);
+  doc.setFont('helvetica', 'normal');
+  
+  // Split the text into lines based on the page width
+  const lines: string[] = doc.splitTextToSize(text, contentWidth);
+  
+  const lineHeight = 7; // In mm
+  let cursorY = margin;
+
+  lines.forEach((line) => {
+    // Check if we need a new page before drawing the line
+    if (cursorY + lineHeight > pageHeight - bottomMargin) {
+      doc.addPage();
+      cursorY = margin;
+    }
+    
+    doc.text(line, margin, cursorY);
+    cursorY += lineHeight;
+  });
+
   return doc.output('blob') as unknown as Blob;
 };
 
 /**
  * Structural PDF Optimization Service
- * Performs a deep copy of the PDF to strip orphaned objects and optimizes object streams.
  */
 export const compressPdf = async (
   buffer: ArrayBuffer, 
