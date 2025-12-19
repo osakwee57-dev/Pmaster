@@ -1,8 +1,9 @@
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { Camera as CameraIcon, Check, Download, Share2, Eye, Plus, Trash2, ChevronLeft, ChevronRight, RefreshCw, Sun, SunDim, Edit3, X, Maximize2, FileOutput } from 'lucide-react';
+import { Camera as CameraIcon, Check, Download, Share2, Eye, Plus, Trash2, ChevronLeft, ChevronRight, RefreshCw, Sun, SunDim, Edit3, X, Maximize2, FileOutput, FileSearch, Loader2 } from 'lucide-react';
 import { generatePdfFromImages, downloadBlob, shareBlob } from '../services/pdfService';
 import ImageEditor from './ImageEditor';
+import PdfPreview from './PdfPreview';
 
 const FullScreenGallery: React.FC<{ 
   images: string[]; 
@@ -72,6 +73,8 @@ const ScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const [torchOn, setTorchOn] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [showGallery, setShowGallery] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
+  const [generatedBlob, setGeneratedBlob] = useState<Blob | null>(null);
   
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -112,6 +115,14 @@ const ScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     setIsCameraActive(false);
   };
 
+  const handleReset = () => {
+    setCapturedImages([]);
+    setActivePageIndex(0);
+    setGeneratedBlob(null);
+    setTorchOn(false);
+    startCamera();
+  };
+
   const capture = useCallback(() => {
     if (videoRef.current && canvasRef.current) {
       const context = canvasRef.current.getContext('2d');
@@ -133,14 +144,16 @@ const ScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     }
   }, [stream]);
 
-  const handleAction = async (type: 'download' | 'share') => {
+  const handleAction = async (type: 'download' | 'share' | 'preview') => {
     if (capturedImages.length === 0) return;
     setIsProcessing(true);
     try {
       const blob = await generatePdfFromImages(capturedImages);
+      setGeneratedBlob(blob);
       const filename = `Scan_${Date.now()}.pdf`;
       if (type === 'download') downloadBlob(blob, filename);
-      else await shareBlob(blob, filename);
+      else if (type === 'share') await shareBlob(blob, filename);
+      else if (type === 'preview') setShowPreview(true);
     } catch (err) {
       alert("Action failed.");
     } finally {
@@ -152,6 +165,8 @@ const ScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     startCamera();
     return () => stopCamera();
   }, []);
+
+  const getFilename = () => `Scan_${Date.now()}.pdf`;
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col pb-24">
@@ -171,8 +186,8 @@ const ScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
           )}
         </div>
         <button 
-          onClick={() => { setCapturedImages([]); startCamera(); }} 
-          className="text-xs font-bold text-slate-400 hover:text-red-500"
+          onClick={handleReset} 
+          className="text-xs font-bold text-slate-400 hover:text-red-500 px-3 py-1 rounded-full transition-colors"
         >
           Reset
         </button>
@@ -272,10 +287,12 @@ const ScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                 <Share2 className="w-6 h-6 mb-2" /> Share PDF
               </button>
               <button 
-                onClick={() => setShowGallery(true)}
+                onClick={() => handleAction('preview')}
+                disabled={isProcessing}
                 className="col-span-2 py-4 bg-slate-900 text-white rounded-2xl font-black shadow-lg flex items-center justify-center active:scale-95 transition-all"
               >
-                <Eye className="w-5 h-5 mr-2" /> Inspect Photos Full Screen
+                {isProcessing ? <Loader2 className="w-5 h-5 mr-2 animate-spin" /> : <Eye className="w-5 h-5 mr-2" />} 
+                Preview & Inspect PDF
               </button>
             </div>
           </div>
@@ -302,6 +319,16 @@ const ScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
           onClose={() => setShowGallery(false)}
           onDownload={() => handleAction('download')}
           onShare={() => handleAction('share')}
+        />
+      )}
+
+      {showPreview && generatedBlob && (
+        <PdfPreview 
+          blob={generatedBlob} 
+          filename={getFilename()} 
+          onClose={() => setShowPreview(false)}
+          onDownload={() => downloadBlob(generatedBlob, getFilename())}
+          onShare={() => shareBlob(generatedBlob, getFilename())}
         />
       )}
     </div>

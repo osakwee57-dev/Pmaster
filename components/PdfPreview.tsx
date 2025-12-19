@@ -78,6 +78,12 @@ const PdfPreview: React.FC<PdfPreviewProps> = ({ blob, filename, onClose, onDown
 
         <div className="flex items-center space-x-2 shrink-0">
           <button 
+            onClick={openInNewTab}
+            className={`flex items-center px-4 py-2 rounded-xl border font-black text-[10px] uppercase tracking-widest transition-all active:scale-95 ${isFullscreen ? 'bg-white/10 border-white/10 text-white' : 'bg-slate-100 border-slate-200 text-slate-800 hover:bg-slate-200'}`}
+          >
+            <ExternalLink className="w-3.5 h-3.5 mr-2" /> Open
+          </button>
+          <button 
             onClick={toggleNativeFullscreen}
             className={`p-2.5 rounded-full border transition-all active:scale-90 ${isFullscreen ? 'bg-white/10 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'}`}
             title="Toggle Fullscreen"

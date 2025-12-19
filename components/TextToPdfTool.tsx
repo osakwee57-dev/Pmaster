@@ -1,7 +1,8 @@
 
 import React, { useState } from 'react';
-import { FileText, Download, Share2, Eye, Type, X, Maximize2 } from 'lucide-react';
+import { FileText, Download, Share2, Eye, Type, X, Maximize2, Loader2 } from 'lucide-react';
 import { generatePdfFromText, downloadBlob, shareBlob } from '../services/pdfService';
+import PdfPreview from './PdfPreview';
 
 const FullScreenTextReader: React.FC<{ text: string; onClose: () => void }> = ({ text, onClose }) => (
   <div className="fixed inset-0 z-[200] bg-white flex flex-col animate-in zoom-in-95 duration-300">
@@ -27,19 +28,23 @@ const TextToPdfTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const [filename, setFilename] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [showReader, setShowReader] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
+  const [generatedBlob, setGeneratedBlob] = useState<Blob | null>(null);
 
   const getFinalFilename = () => {
     const base = filename.trim() || `text_doc_${Date.now()}`;
     return base.toLowerCase().endsWith('.pdf') ? base : `${base}.pdf`;
   };
 
-  const handleAction = async (type: 'download' | 'share') => {
+  const handleAction = async (type: 'download' | 'share' | 'preview') => {
     if (!text.trim()) return alert("Please enter some text.");
     setIsProcessing(true);
     try {
       const blob = await generatePdfFromText(text);
+      setGeneratedBlob(blob);
       if (type === 'download') downloadBlob(blob, getFinalFilename());
-      else await shareBlob(blob, getFinalFilename());
+      else if (type === 'share') await shareBlob(blob, getFinalFilename());
+      else if (type === 'preview') setShowPreview(true);
     } catch (err) {
       alert("Error generating PDF.");
     } finally {
@@ -88,10 +93,11 @@ const TextToPdfTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         <div className="grid grid-cols-2 gap-4">
           <button 
             disabled={isProcessing || !text}
-            onClick={() => setShowReader(true)}
+            onClick={() => handleAction('preview')}
             className="col-span-2 flex items-center justify-center bg-slate-900 text-white py-5 rounded-2xl font-black shadow-lg hover:bg-black transition-all active:scale-95"
           >
-            <Eye className="w-5 h-5 mr-2" /> Review Full Screen
+            {isProcessing ? <Loader2 className="w-5 h-5 mr-2 animate-spin" /> : <Eye className="w-5 h-5 mr-2" />} 
+            Preview Generated PDF
           </button>
           <button 
             disabled={isProcessing || !text}
@@ -112,6 +118,16 @@ const TextToPdfTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
 
       {showReader && (
         <FullScreenTextReader text={text} onClose={() => setShowReader(false)} />
+      )}
+
+      {showPreview && generatedBlob && (
+        <PdfPreview 
+          blob={generatedBlob} 
+          filename={getFinalFilename()} 
+          onClose={() => setShowPreview(false)}
+          onDownload={() => downloadBlob(generatedBlob, getFinalFilename())}
+          onShare={() => shareBlob(generatedBlob, getFinalFilename())}
+        />
       )}
     </div>
   );
