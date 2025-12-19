@@ -149,9 +149,9 @@ export const generatePdfFromImages = async (images: string[]): Promise<Blob> => 
 };
 
 /**
- * Robust Mixed Content Engine (Fixed Pagination)
+ * Robust Mixed Content Engine (Fixed Pagination & Resizing Support)
  */
-export const generatePdfFromMixedContent = async (content: { type: 'text' | 'image', value: string }[]): Promise<Blob> => {
+export const generatePdfFromMixedContent = async (content: { type: 'text' | 'image', value: string, widthPercent?: number }[]): Promise<Blob> => {
   const doc = new jsPDF({ 
     orientation: 'p',
     unit: 'mm',
@@ -194,8 +194,9 @@ export const generatePdfFromMixedContent = async (content: { type: 'text' | 'ima
       });
 
       const ratio = img.width / img.height;
-      const imgW = contentWidth;
-      const imgH = contentWidth / ratio;
+      const widthFactor = (block.widthPercent || 100) / 100;
+      const imgW = contentWidth * widthFactor;
+      const imgH = imgW / ratio;
 
       // Check if image is too tall for a single page, if so scale it
       const maxAvailableH = pageHeight - margin - bottomMargin;
@@ -213,6 +214,7 @@ export const generatePdfFromMixedContent = async (content: { type: 'text' | 'ima
         cursorY = margin;
       }
 
+      // Center the image within its width allocation if needed, but here we just center relative to content width
       doc.addImage(block.value, 'JPEG', margin + (contentWidth - finalW) / 2, cursorY, finalW, finalH);
       cursorY += finalH + blockSpacing;
     }
