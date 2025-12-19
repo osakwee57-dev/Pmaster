@@ -11,7 +11,8 @@ export const downloadBlob = (blob: Blob, filename: string) => {
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  // We don't revoke immediately here because some browsers might still be processing
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 };
 
 export const shareBlob = async (blob: Blob, filename: string) => {
@@ -42,9 +43,6 @@ export interface AdvancedPdfOptions {
   onProgress?: (progress: number, status: string) => void;
 }
 
-/**
- * Helper to re-encode images to a specific quality using Canvas
- */
 const reencodeImage = async (base64: string, quality: number): Promise<string> => {
   return new Promise((resolve) => {
     const img = new Image();
@@ -58,12 +56,10 @@ const reencodeImage = async (base64: string, quality: number): Promise<string> =
       ctx.drawImage(img, 0, 0);
       resolve(canvas.toDataURL('image/jpeg', quality));
     };
+    img.onerror = () => resolve(base64);
   });
 };
 
-/**
- * Advanced PDF Generator from Images
- */
 export const generateAdvancedPdfFromImages = async (
   images: string[], 
   options: AdvancedPdfOptions
@@ -95,24 +91,30 @@ export const generateAdvancedPdfFromImages = async (
     let currentImg = images[i];
     
     if (quality !== 'high') {
-      onProgress?.(((i + 0.2) / images.length) * 100, `Optimizing quality for page ${i + 1}...`);
+      onProgress?.(((i + 0.2) / images.length) * 100, `Optimizing page ${i + 1}...`);
       currentImg = await reencodeImage(images[i], targetQuality);
     }
 
     if (ocrEnabled) {
-      onProgress?.(((i + 0.5) / images.length) * 100, `Analyzing text on page ${i + 1}...`);
-      const result = await Tesseract.recognize(currentImg, 'eng');
-      fullRecognizedText += `--- Page ${i + 1} ---\n${result.data.text}\n\n`;
-
-      doc.setGState(new (doc as any).GState({ opacity: 0 }));
-      doc.setFontSize(1);
-      doc.text(result.data.text.substring(0, 1000), margin, pageHeight - margin);
-      doc.setGState(new (doc as any).GState({ opacity: 1 }));
+      onProgress?.(((i + 0.5) / images.length) * 100, `Running OCR on page ${i + 1}...`);
+      try {
+        const result = await Tesseract.recognize(currentImg, 'eng');
+        fullRecognizedText += `--- Page ${i + 1} ---\n${result.data.text}\n\n`;
+        doc.setGState(new (doc as any).GState({ opacity: 0 }));
+        doc.setFontSize(1);
+        doc.text(result.data.text.substring(0, 1000), margin, pageHeight - margin);
+        doc.setGState(new (doc as any).GState({ opacity: 1 }));
+      } catch (ocrErr) {
+        console.warn("OCR failed for page", i, ocrErr);
+      }
     }
 
     const img = new Image();
     img.src = currentImg;
-    await new Promise((resolve) => { img.onload = resolve; });
+    await new Promise((resolve) => { 
+      img.onload = resolve; 
+      img.onerror = resolve; 
+    });
 
     const ratio = img.width / img.height;
     let finalW = contentWidth;
@@ -129,7 +131,7 @@ export const generateAdvancedPdfFromImages = async (
     doc.addImage(currentImg, 'JPEG', x, y, finalW, finalH, undefined, quality === 'low' ? 'FAST' : 'SLOW', 0);
   }
 
-  onProgress?.(100, "Finalizing Document...");
+  onProgress?.(100, "Finalizing...");
   const blob = doc.output('blob') as unknown as Blob;
   return { blob, recognizedText: fullRecognizedText };
 };
@@ -147,9 +149,9 @@ export const generatePdfFromImages = async (images: string[]): Promise<Blob> => 
 };
 
 /**
- * Fixed Multi-page Text to PDF conversion
+ * Robust Mixed Content Engine (Fixed Pagination)
  */
-export const generatePdfFromText = async (text: string): Promise<Blob> => {
+export const generatePdfFromMixedContent = async (content: { type: 'text' | 'image', value: string }[]): Promise<Blob> => {
   const doc = new jsPDF({ 
     orientation: 'p',
     unit: 'mm',
@@ -166,54 +168,87 @@ export const generatePdfFromText = async (text: string): Promise<Blob> => {
   doc.setFontSize(11);
   doc.setFont('helvetica', 'normal');
   
-  // Split the text into lines based on the page width
-  const lines: string[] = doc.splitTextToSize(text, contentWidth);
-  
-  const lineHeight = 7; // In mm
   let cursorY = margin;
+  const lineHeight = 7;
+  const blockSpacing = 12;
 
-  lines.forEach((line) => {
-    // Check if we need a new page before drawing the line
-    if (cursorY + lineHeight > pageHeight - bottomMargin) {
-      doc.addPage();
-      cursorY = margin;
+  for (const block of content) {
+    if (block.type === 'text') {
+      const lines: string[] = doc.splitTextToSize(block.value, contentWidth);
+      for (const line of lines) {
+        // If we reach the bottom, add a new page
+        if (cursorY + lineHeight > pageHeight - bottomMargin) {
+          doc.addPage();
+          cursorY = margin;
+        }
+        doc.text(line, margin, cursorY);
+        cursorY += lineHeight;
+      }
+      cursorY += blockSpacing / 2;
+    } else if (block.type === 'image') {
+      const img = new Image();
+      img.src = block.value;
+      await new Promise((resolve) => { 
+        img.onload = resolve; 
+        img.onerror = resolve; 
+      });
+
+      const ratio = img.width / img.height;
+      const imgW = contentWidth;
+      const imgH = contentWidth / ratio;
+
+      // Check if image is too tall for a single page, if so scale it
+      const maxAvailableH = pageHeight - margin - bottomMargin;
+      let finalW = imgW;
+      let finalH = imgH;
+      
+      if (finalH > maxAvailableH) {
+        finalH = maxAvailableH;
+        finalW = finalH * ratio;
+      }
+
+      // If image doesn't fit on current page at current cursor, move to next page
+      if (cursorY + finalH > pageHeight - bottomMargin) {
+        doc.addPage();
+        cursorY = margin;
+      }
+
+      doc.addImage(block.value, 'JPEG', margin + (contentWidth - finalW) / 2, cursorY, finalW, finalH);
+      cursorY += finalH + blockSpacing;
     }
-    
-    doc.text(line, margin, cursorY);
-    cursorY += lineHeight;
-  });
+  }
 
   return doc.output('blob') as unknown as Blob;
 };
 
-/**
- * Structural PDF Optimization Service
- */
+export const generatePdfFromText = async (text: string): Promise<Blob> => {
+  return generatePdfFromMixedContent([{ type: 'text', value: text }]);
+};
+
 export const compressPdf = async (
   buffer: ArrayBuffer, 
   preset: 'screen' | 'ebook' | 'printer' = 'screen',
   onProgress?: (msg: string) => void
 ): Promise<Blob> => {
   try {
-    onProgress?.("GS_CORE: Loading source stream...");
+    onProgress?.("Loading document...");
     const pdfDoc = await PDFDocument.load(buffer);
     const newPdf = await PDFDocument.create();
     
-    onProgress?.("GS_CORE: Reconstructing object graph...");
+    onProgress?.("Optimizing pages...");
     const indices = Array.from({ length: pdfDoc.getPageCount() }, (_, i) => i);
     const copiedPages = await newPdf.copyPages(pdfDoc, indices);
     copiedPages.forEach((page) => newPdf.addPage(page));
     
-    onProgress?.(`GS_CORE: Applying /${preset} compression parameters...`);
+    onProgress?.(`Applying ${preset} optimization...`);
     const compressedBytes = await newPdf.save({ 
       useObjectStreams: true,
-      addDefaultPage: false,
-      updateFieldAppearances: false
+      addDefaultPage: false
     });
     
     return new Blob([compressedBytes], { type: 'application/pdf' });
   } catch (err) {
-    console.error("Ghostscript-Engine error:", err);
+    console.error("Compression error:", err);
     throw err;
   }
 };
@@ -276,7 +311,8 @@ export const processImage = async (base64: string, options: ProcessOptions): Pro
         ctx.putImageData(imageData, 0, 0);
       }
       ctx.restore();
-      resolve(canvas.toDataURL('image/jpeg', 0.8));
+      resolve(canvas.toDataURL('image/jpeg', 0.85));
     };
+    img.onerror = () => resolve(base64);
   });
 };
