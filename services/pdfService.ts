@@ -11,7 +11,6 @@ export const downloadBlob = (blob: Blob, filename: string) => {
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
-  // We don't revoke immediately here because some browsers might still be processing
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 };
 
@@ -149,7 +148,7 @@ export const generatePdfFromImages = async (images: string[]): Promise<Blob> => 
 };
 
 /**
- * Robust Mixed Content Engine (Fixed Pagination & Resizing Support)
+ * Robust Mixed Content Engine with Reduced Margins (10mm)
  */
 export const generatePdfFromMixedContent = async (content: { type: 'text' | 'image', value: string, widthPercent?: number }[]): Promise<Blob> => {
   const doc = new jsPDF({ 
@@ -159,7 +158,8 @@ export const generatePdfFromMixedContent = async (content: { type: 'text' | 'ima
     compress: true 
   });
 
-  const margin = 20;
+  // REDUCED MARGINS: Changed from 20 to 10
+  const margin = 10;
   const pageHeight = doc.internal.pageSize.getHeight();
   const pageWidth = doc.internal.pageSize.getWidth();
   const contentWidth = pageWidth - (margin * 2);
@@ -169,14 +169,13 @@ export const generatePdfFromMixedContent = async (content: { type: 'text' | 'ima
   doc.setFont('helvetica', 'normal');
   
   let cursorY = margin;
-  const lineHeight = 7;
-  const blockSpacing = 12;
+  const lineHeight = 6;
+  const blockSpacing = 8;
 
   for (const block of content) {
     if (block.type === 'text') {
       const lines: string[] = doc.splitTextToSize(block.value, contentWidth);
       for (const line of lines) {
-        // If we reach the bottom, add a new page
         if (cursorY + lineHeight > pageHeight - bottomMargin) {
           doc.addPage();
           cursorY = margin;
@@ -198,7 +197,6 @@ export const generatePdfFromMixedContent = async (content: { type: 'text' | 'ima
       const imgW = contentWidth * widthFactor;
       const imgH = imgW / ratio;
 
-      // Check if image is too tall for a single page, if so scale it
       const maxAvailableH = pageHeight - margin - bottomMargin;
       let finalW = imgW;
       let finalH = imgH;
@@ -208,13 +206,11 @@ export const generatePdfFromMixedContent = async (content: { type: 'text' | 'ima
         finalW = finalH * ratio;
       }
 
-      // If image doesn't fit on current page at current cursor, move to next page
       if (cursorY + finalH > pageHeight - bottomMargin) {
         doc.addPage();
         cursorY = margin;
       }
 
-      // Center the image within its width allocation if needed, but here we just center relative to content width
       doc.addImage(block.value, 'JPEG', margin + (contentWidth - finalW) / 2, cursorY, finalW, finalH);
       cursorY += finalH + blockSpacing;
     }
