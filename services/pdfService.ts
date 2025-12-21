@@ -2,6 +2,10 @@
 import { jsPDF } from 'jspdf';
 import { PDFDocument } from 'pdf-lib';
 import Tesseract from 'tesseract.js';
+import * as pdfjsLib from 'pdfjs-dist';
+
+// Initialize PDF.js worker
+pdfjsLib.GlobalWorkerOptions.workerSrc = `https://esm.sh/pdfjs-dist@4.10.38/build/pdf.worker.mjs`;
 
 export const downloadBlob = (blob: Blob, filename: string) => {
   const url = URL.createObjectURL(blob);
@@ -30,6 +34,30 @@ export const shareBlob = async (blob: Blob, filename: string) => {
     const url = URL.createObjectURL(blob);
     window.open(url, '_blank');
   }
+};
+
+/**
+ * Extracts raw text from a PDF file using PDF.js
+ */
+export const extractTextFromPdf = async (buffer: ArrayBuffer, onProgress?: (msg: string) => void): Promise<{ fullText: string, pages: string[] }> => {
+  const loadingTask = pdfjsLib.getDocument({ data: buffer });
+  const pdf = await loadingTask.promise;
+  const pages: string[] = [];
+  let fullText = "";
+
+  for (let i = 1; i <= pdf.numPages; i++) {
+    onProgress?.(`Extracting page ${i} of ${pdf.numPages}...`);
+    const page = await pdf.getPage(i);
+    const textContent = await page.getTextContent();
+    const pageText = textContent.items
+      .map((item: any) => item.str)
+      .join(' ');
+    
+    pages.push(pageText);
+    fullText += `--- Page ${i} ---\n${pageText}\n\n`;
+  }
+
+  return { fullText, pages };
 };
 
 export interface AdvancedPdfOptions {
@@ -147,9 +175,6 @@ export const generatePdfFromImages = async (images: string[]): Promise<Blob> => 
   return result.blob;
 };
 
-/**
- * Robust Mixed Content Engine (10mm Margin)
- */
 export const generatePdfFromMixedContent = async (content: { type: 'text' | 'image', value: string, widthPercent?: number }[]): Promise<Blob> => {
   const doc = new jsPDF({ 
     orientation: 'p',
@@ -218,10 +243,6 @@ export const generatePdfFromMixedContent = async (content: { type: 'text' | 'ima
   return doc.output('blob') as unknown as Blob;
 };
 
-/**
- * Advanced Hybrid Merger
- * Intelligently combines raw PDF pages with newly generated text pages.
- */
 export const mergeHybridPdf = async (pages: Array<
   { type: 'original', buffer: ArrayBuffer, pageIndex: number } | 
   { type: 'text', value: string }
@@ -239,7 +260,6 @@ export const mergeHybridPdf = async (pages: Array<
       const [copiedPage] = await mergedPdf.copyPages(sourcePdf, [p.pageIndex]);
       mergedPdf.addPage(copiedPage);
     } else {
-      // Create a temporary PDF for the text and extract its pages
       const textBlob = await generatePdfFromText(p.value);
       const textBuffer = await textBlob.arrayBuffer();
       const textPdf = await PDFDocument.load(textBuffer);
