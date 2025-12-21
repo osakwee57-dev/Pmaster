@@ -148,7 +148,7 @@ export const generatePdfFromImages = async (images: string[]): Promise<Blob> => 
 };
 
 /**
- * Robust Mixed Content Engine with Reduced Margins (10mm)
+ * Robust Mixed Content Engine (10mm Margin)
  */
 export const generatePdfFromMixedContent = async (content: { type: 'text' | 'image', value: string, widthPercent?: number }[]): Promise<Blob> => {
   const doc = new jsPDF({ 
@@ -158,7 +158,6 @@ export const generatePdfFromMixedContent = async (content: { type: 'text' | 'ima
     compress: true 
   });
 
-  // REDUCED MARGINS: Changed from 20 to 10
   const margin = 10;
   const pageHeight = doc.internal.pageSize.getHeight();
   const pageWidth = doc.internal.pageSize.getWidth();
@@ -217,6 +216,45 @@ export const generatePdfFromMixedContent = async (content: { type: 'text' | 'ima
   }
 
   return doc.output('blob') as unknown as Blob;
+};
+
+/**
+ * Advanced Hybrid Merger
+ * Intelligently combines raw PDF pages with newly generated text pages.
+ */
+export const mergeHybridPdf = async (pages: Array<
+  { type: 'original', buffer: ArrayBuffer, pageIndex: number } | 
+  { type: 'text', value: string }
+>): Promise<Blob> => {
+  const mergedPdf = await PDFDocument.create();
+  const bufferMap = new Map<ArrayBuffer, PDFDocument>();
+
+  for (const p of pages) {
+    if (p.type === 'original') {
+      let sourcePdf = bufferMap.get(p.buffer);
+      if (!sourcePdf) {
+        sourcePdf = await PDFDocument.load(p.buffer);
+        bufferMap.set(p.buffer, sourcePdf);
+      }
+      const [copiedPage] = await mergedPdf.copyPages(sourcePdf, [p.pageIndex]);
+      mergedPdf.addPage(copiedPage);
+    } else {
+      // Create a temporary PDF for the text and extract its pages
+      const textBlob = await generatePdfFromText(p.value);
+      const textBuffer = await textBlob.arrayBuffer();
+      const textPdf = await PDFDocument.load(textBuffer);
+      const indices = Array.from({ length: textPdf.getPageCount() }, (_, i) => i);
+      const copiedPages = await mergedPdf.copyPages(textPdf, indices);
+      copiedPages.forEach(page => mergedPdf.addPage(page));
+    }
+  }
+  
+  const bytes = await mergedPdf.save();
+  return new Blob([bytes], { type: 'application/pdf' });
+};
+
+export const mergePdfsByPages = async (pages: { buffer: ArrayBuffer, pageIndex: number }[]): Promise<Blob> => {
+  return mergeHybridPdf(pages.map(p => ({ type: 'original', buffer: p.buffer, pageIndex: p.pageIndex })));
 };
 
 export const generatePdfFromText = async (text: string): Promise<Blob> => {

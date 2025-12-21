@@ -1,10 +1,11 @@
 
 import React, { useState } from 'react';
-import { Camera, FileText, ImageIcon, ChevronRight, FileOutput, ShieldCheck, Zap, Cpu } from 'lucide-react';
+import { Camera, FileText, ImageIcon, ChevronRight, FileOutput, ShieldCheck, Zap, Cpu, Layers, Edit3 } from 'lucide-react';
 import ScannerTool from './components/ScannerTool';
 import TextToPdfTool from './components/TextToPdfTool';
 import ImageToPdfTool from './components/ImageToPdfTool';
 import GhostscriptTool from './components/GhostscriptTool';
+import EditPdfTool from './components/EditPdfTool';
 import { ToolType } from './types';
 
 const App: React.FC = () => {
@@ -20,8 +21,8 @@ const App: React.FC = () => {
     },
     {
       id: 'text' as ToolType,
-      title: 'Text to PDF',
-      description: 'Quick notes to professional PDF',
+      title: 'Doc Builder',
+      description: 'Mix text and photos into PDFs',
       icon: <FileText className="w-7 h-7 text-purple-600" />,
       color: 'bg-purple-100',
     },
@@ -31,6 +32,13 @@ const App: React.FC = () => {
       description: 'Stitch gallery images together',
       icon: <ImageIcon className="w-7 h-7 text-pink-600" />,
       color: 'bg-pink-100',
+    },
+    {
+      id: 'edit' as ToolType,
+      title: 'Edit & Merge',
+      description: 'Reorder, delete or combine PDFs',
+      icon: <Layers className="w-7 h-7 text-emerald-600" />,
+      color: 'bg-emerald-100',
     },
     {
       id: 'gs_compress' as ToolType,
@@ -44,6 +52,7 @@ const App: React.FC = () => {
   if (activeTool === 'scan') return <ScannerTool onBack={() => setActiveTool(null)} />;
   if (activeTool === 'text') return <TextToPdfTool onBack={() => setActiveTool(null)} />;
   if (activeTool === 'image') return <ImageToPdfTool onBack={() => setActiveTool(null)} />;
+  if (activeTool === 'edit') return <EditPdfTool onBack={() => setActiveTool(null)} />;
   if (activeTool === 'gs_compress') return <GhostscriptTool onBack={() => setActiveTool(null)} />;
 
   return (
