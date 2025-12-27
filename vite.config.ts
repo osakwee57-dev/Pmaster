@@ -21,6 +21,7 @@ export default defineConfig({
         'jspdf',
         'pdf-lib',
         'tesseract.js',
+        'pdfjs-dist',
         '@vercel/analytics/react'
       ],
     },
