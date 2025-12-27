@@ -1,15 +1,29 @@
 
-import React, { useState } from 'react';
-import { Camera, FileText, ImageIcon, ChevronRight, FileOutput, ShieldCheck, Zap, Cpu, Layers, Edit3 } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Camera, FileText, ImageIcon, ChevronRight, FileOutput, ShieldCheck, Zap, Cpu, Layers, History } from 'lucide-react';
 import ScannerTool from './components/ScannerTool';
 import TextToPdfTool from './components/TextToPdfTool';
 import ImageToPdfTool from './components/ImageToPdfTool';
 import GhostscriptTool from './components/GhostscriptTool';
 import EditPdfTool from './components/EditPdfTool';
-import { ToolType } from './types';
+import DraftsManager from './components/DraftsManager';
+import { ToolType, Draft } from './types';
 
 const App: React.FC = () => {
   const [activeTool, setActiveTool] = useState<ToolType | null>(null);
+  const [resumedDraft, setResumedDraft] = useState<Draft | null>(null);
+
+  // Visibility logic for short-term session memory
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        // App backgrounded: Any "Low RAM" cleanup can happen here if needed
+        // but IndexedDB is persistent anyway.
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, []);
 
   const tools = [
     {
@@ -43,21 +57,31 @@ const App: React.FC = () => {
     {
       id: 'gs_compress' as ToolType,
       title: 'GS Compressor',
-      description: 'Aggressive 50% size reduction',
+      description: 'Aggressive size reduction',
       icon: <Cpu className="w-7 h-7 text-slate-800" />,
       color: 'bg-slate-200',
     }
   ];
 
-  if (activeTool === 'scan') return <ScannerTool onBack={() => setActiveTool(null)} />;
-  if (activeTool === 'text') return <TextToPdfTool onBack={() => setActiveTool(null)} />;
-  if (activeTool === 'image') return <ImageToPdfTool onBack={() => setActiveTool(null)} />;
-  if (activeTool === 'edit') return <EditPdfTool onBack={() => setActiveTool(null)} />;
-  if (activeTool === 'gs_compress') return <GhostscriptTool onBack={() => setActiveTool(null)} />;
+  const handleResume = (draft: Draft) => {
+    setResumedDraft(draft);
+    setActiveTool(draft.type);
+  };
+
+  const handleBack = () => {
+    setActiveTool(null);
+    setResumedDraft(null);
+  };
+
+  if (activeTool === 'scan') return <ScannerTool onBack={handleBack} initialData={resumedDraft?.data} draftId={resumedDraft?.id} />;
+  if (activeTool === 'text') return <TextToPdfTool onBack={handleBack} initialData={resumedDraft?.data} draftId={resumedDraft?.id} />;
+  if (activeTool === 'image') return <ImageToPdfTool onBack={handleBack} initialData={resumedDraft?.data} draftId={resumedDraft?.id} />;
+  if (activeTool === 'edit') return <EditPdfTool onBack={handleBack} initialData={resumedDraft?.data} draftId={resumedDraft?.id} />;
+  if (activeTool === 'gs_compress') return <GhostscriptTool onBack={handleBack} />;
+  if (activeTool === 'drafts') return <DraftsManager onBack={handleBack} onResume={handleResume} />;
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans selection:bg-blue-100">
-      {/* Dynamic Header */}
       <header className="px-8 pt-16 pb-8">
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center space-x-3">
@@ -69,14 +93,16 @@ const App: React.FC = () => {
               <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest mt-1">PRO TOOLSET</p>
             </div>
           </div>
-          <div className="flex items-center bg-white p-2 rounded-2xl shadow-sm border border-slate-100">
-            <ShieldCheck className="w-4 h-4 text-emerald-500 mr-2" />
-            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Local Only</span>
-          </div>
+          <button 
+            onClick={() => setActiveTool('drafts')}
+            className="flex items-center bg-white p-3 rounded-2xl shadow-sm border border-slate-100 group hover:border-blue-200 transition-all"
+          >
+            <History className="w-4 h-4 text-blue-500 mr-2 group-hover:rotate-[-10deg] transition-transform" />
+            <span className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Drafts</span>
+          </button>
         </div>
       </header>
 
-      {/* Hero Banner */}
       <div className="px-6 mb-10">
         <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 rounded-[2.5rem] p-10 text-white shadow-2xl relative overflow-hidden group">
           <div className="relative z-10 max-w-[220px]">
@@ -85,7 +111,7 @@ const App: React.FC = () => {
               <span className="text-[10px] font-black uppercase tracking-widest text-blue-200">Local Privacy</span>
             </div>
             <h2 className="text-3xl font-bold mb-3 tracking-tight leading-tight">Professional Scanning.</h2>
-            <p className="text-slate-400 text-sm font-medium mb-8 leading-relaxed">Turn your paper trail into high-quality digital assets instantly.</p>
+            <p className="text-slate-400 text-sm font-medium mb-8 leading-relaxed">Local-first recovery and autosave enabled.</p>
             <button 
               onClick={() => setActiveTool('scan')}
               className="bg-white text-slate-900 px-8 py-3.5 rounded-2xl font-black text-xs shadow-xl active:scale-95 transition-all hover:bg-blue-50 uppercase tracking-widest"

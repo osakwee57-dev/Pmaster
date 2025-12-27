@@ -1,7 +1,9 @@
 
-import React, { useState, useRef } from 'react';
-import { ChevronLeft, Plus, Trash2, ArrowUp, ArrowDown, Layers, Download, Share2, Eye, Loader2, FileText, X, Files, Zap, Edit3, Type, Check, FileCode, FileType, Search, ArrowRight } from 'lucide-react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { ChevronLeft, Plus, Trash2, ArrowUp, ArrowDown, Layers, Download, Share2, Eye, Loader2, FileText, X, Files, Zap, Edit3, Type, Check, FileCode, FileType, Search, ArrowRight, Save } from 'lucide-react';
 import { mergeHybridPdf, downloadBlob, shareBlob, extractTextFromPdf } from '../services/pdfService';
+import { persistenceService, getAutosaveInterval } from '../services/persistenceService';
+import { PDFToolProps } from '../types';
 import PdfPreview from './PdfPreview';
 import { PDFDocument } from 'pdf-lib';
 
@@ -16,14 +18,16 @@ type EditBlock =
   | { id: string; type: 'original'; sourceId: string; pageIndex: number; name: string; peekText?: string }
   | { id: string; type: 'text'; value: string; name: string };
 
-const EditPdfTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
-  const [activeTab, setActiveTab] = useState<'merge' | 'convert'>('merge');
-  const [sources, setSources] = useState<PdfSource[]>([]);
-  const [blocks, setBlocks] = useState<EditBlock[]>([]);
-  const [filename, setFilename] = useState('');
+const EditPdfTool: React.FC<PDFToolProps> = ({ onBack, initialData, draftId }) => {
+  const [activeTab, setActiveTab] = useState<'merge' | 'convert'>(initialData?.activeTab || 'merge');
+  const [sources, setSources] = useState<PdfSource[]>(initialData?.sources || []);
+  const [blocks, setBlocks] = useState<EditBlock[]>(initialData?.blocks || []);
+  const [filename, setFilename] = useState(initialData?.filename || '');
   const [isProcessing, setIsProcessing] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [generatedBlob, setGeneratedBlob] = useState<Blob | null>(null);
+  const [currentDraftId, setCurrentDraftId] = useState(draftId || Math.random().toString(36).substr(2, 9));
+  const [isSaved, setIsSaved] = useState(true);
   
   // Converter State
   const [convertFile, setConvertFile] = useState<File | null>(null);
@@ -33,6 +37,28 @@ const EditPdfTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const convertInputRef = useRef<HTMLInputElement>(null);
+
+  // Persistence logic
+  const saveToDrafts = useCallback(async () => {
+    if (blocks.length === 0 && !convertFile) return;
+    
+    setIsSaved(false);
+    await persistenceService.saveDraft({
+      id: currentDraftId,
+      type: 'edit',
+      title: filename || (activeTab === 'merge' ? `Merge (${blocks.length} pages)` : `Convert (${convertFile?.name || 'Doc'})`),
+      lastEdited: Date.now(),
+      data: { sources, blocks, filename, activeTab }
+    });
+    setIsSaved(true);
+  }, [sources, blocks, filename, activeTab, convertFile, currentDraftId]);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      saveToDrafts();
+    }, getAutosaveInterval());
+    return () => clearInterval(interval);
+  }, [saveToDrafts]);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []) as File[];
@@ -111,7 +137,6 @@ const EditPdfTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
 
       switch(format) {
         case 'doc':
-          // Create a Word-compatible HTML structure
           const htmlContent = `
             <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
             <head><meta charset="utf-8"><title>Converted Document</title></head>
@@ -185,7 +210,10 @@ const EditPdfTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       const blob = await mergeHybridPdf(pageSpecs);
       setGeneratedBlob(blob);
       const name = filename || `merged_${Date.now()}.pdf`;
-      if (type === 'download') downloadBlob(blob, name);
+      if (type === 'download') {
+        downloadBlob(blob, name);
+        await persistenceService.deleteDraft(currentDraftId);
+      }
       else if (type === 'share') await shareBlob(blob, name);
       else if (type === 'preview') setShowPreview(true);
     } catch (err) {
@@ -197,18 +225,21 @@ const EditPdfTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
 
   return (
     <div className="flex flex-col max-w-5xl mx-auto p-4 space-y-6 pb-48 min-h-screen pt-8">
-      {/* Header */}
       <div className="w-full flex justify-between items-center mb-4">
         <button onClick={onBack} className="text-slate-600 font-bold p-2 hover:bg-slate-100 rounded-xl flex items-center transition-all">
           <ChevronLeft className="w-5 h-5 mr-1" /> Back
         </button>
         <div className="text-right">
           <h2 className="text-2xl font-black text-slate-900 leading-none">PDF Workspace</h2>
-          <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest mt-1">Professional Suite</p>
+          <div className="flex items-center justify-end space-x-2 mt-1">
+            <span className={`text-[9px] font-black uppercase tracking-widest ${isSaved ? 'text-emerald-500' : 'text-orange-400'}`}>
+              {isSaved ? 'Draft Synced' : 'Syncing...'}
+            </span>
+            <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest">Professional Suite</p>
+          </div>
         </div>
       </div>
 
-      {/* Tabs */}
       <div className="flex bg-slate-200/50 p-1 rounded-2xl w-full sm:w-fit self-center sm:self-end shadow-sm">
         <button 
           onClick={() => setActiveTab('merge')}
@@ -289,7 +320,6 @@ const EditPdfTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
             </div>
           </div>
 
-          {/* Merge Control Panel */}
           <div className="space-y-6">
             <div className="bg-slate-900 p-8 rounded-[3rem] shadow-2xl space-y-6 sticky top-8 border border-white/5">
               <div className="flex items-center space-x-3 mb-2">
@@ -339,7 +369,6 @@ const EditPdfTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
           </div>
         </div>
       ) : (
-        /* Converter Mode */
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
           <div className="bg-white p-8 rounded-[3rem] shadow-xl border border-slate-100 flex flex-col min-h-[500px]">
             <div className="flex items-center space-x-3 mb-8">
@@ -416,28 +445,6 @@ const EditPdfTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                      </div>
                      <ArrowRight className="w-4 h-4 text-slate-300 group-hover:text-emerald-500 group-hover:translate-x-1 transition-all" />
                    </button>
-                   <button 
-                     disabled={isProcessing || !extractedText}
-                     onClick={() => performConversion('md')}
-                     className="flex items-center justify-between p-5 bg-white border-2 border-slate-100 rounded-2xl hover:border-purple-500 hover:bg-purple-50 transition-all group disabled:opacity-50"
-                   >
-                     <div className="text-left">
-                       <p className="text-[10px] font-black uppercase text-slate-900">Markdown .MD</p>
-                       <p className="text-[8px] font-bold text-slate-400">Documentation</p>
-                     </div>
-                     <ArrowRight className="w-4 h-4 text-slate-300 group-hover:text-purple-500 group-hover:translate-x-1 transition-all" />
-                   </button>
-                   <button 
-                     disabled={isProcessing || !extractedText}
-                     onClick={() => performConversion('json')}
-                     className="flex items-center justify-between p-5 bg-white border-2 border-slate-100 rounded-2xl hover:border-indigo-500 hover:bg-indigo-50 transition-all group disabled:opacity-50"
-                   >
-                     <div className="text-left">
-                       <p className="text-[10px] font-black uppercase text-slate-900">Structured .JSON</p>
-                       <p className="text-[8px] font-bold text-slate-400">Developer Data</p>
-                     </div>
-                     <ArrowRight className="w-4 h-4 text-slate-300 group-hover:text-indigo-500 group-hover:translate-x-1 transition-all" />
-                   </button>
                 </div>
               </div>
             )}
@@ -460,11 +467,7 @@ const EditPdfTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                 </li>
                 <li className="flex items-start space-x-3">
                    <Check className="w-5 h-5 text-emerald-400 shrink-0" />
-                   <span className="text-xs text-slate-300">Markdown preservation ensures that headings and page breaks remain logical.</span>
-                </li>
-                <li className="flex items-start space-x-3">
-                   <Check className="w-5 h-5 text-emerald-400 shrink-0" />
-                   <span className="text-xs text-slate-300">Private processing: Every character stays on your device.</span>
+                   <span className="text-xs text-slate-300">Markdown preservation ensures logical logical flow.</span>
                 </li>
              </ul>
           </div>
@@ -476,7 +479,7 @@ const EditPdfTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
           blob={generatedBlob} 
           filename={filename || 'merged_doc.pdf'} 
           onClose={() => setShowPreview(false)}
-          onDownload={() => downloadBlob(generatedBlob, filename || 'merged_doc.pdf')}
+          onDownload={() => handleMergeAction('download')}
           onShare={() => shareBlob(generatedBlob, filename || 'merged_doc.pdf')}
         />
       )}

@@ -1,26 +1,51 @@
 
-import React, { useState, useRef } from 'react';
-import { FileText, Download, Share2, Eye, Type, X, Maximize2, Loader2, Image as ImageIcon, Plus, Trash2, ArrowUp, ArrowDown, ChevronLeft, Shrink, Expand } from 'lucide-react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { FileText, Download, Share2, Eye, Type, X, Maximize2, Loader2, Image as ImageIcon, Plus, Trash2, ArrowUp, ArrowDown, ChevronLeft, Shrink, Expand, Save } from 'lucide-react';
 import { generatePdfFromMixedContent, downloadBlob, shareBlob } from '../services/pdfService';
+import { persistenceService, getAutosaveInterval } from '../services/persistenceService';
+import { PDFToolProps } from '../types';
 import PdfPreview from './PdfPreview';
 
 type ContentBlock = 
   | { id: string; type: 'text'; value: string }
-  | { id: string; type: 'image'; value: string; file: File; widthPercent: number };
+  | { id: string; type: 'image'; value: string; file?: File; widthPercent: number };
 
-const TextToPdfTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
-  const [blocks, setBlocks] = useState<ContentBlock[]>([
+const TextToPdfTool: React.FC<PDFToolProps> = ({ onBack, initialData, draftId }) => {
+  const [blocks, setBlocks] = useState<ContentBlock[]>(initialData?.blocks || [
     { id: Math.random().toString(36).substr(2, 9), type: 'text', value: '' }
   ]);
-  const [filename, setFilename] = useState('');
+  const [filename, setFilename] = useState(initialData?.filename || '');
   const [isProcessing, setIsProcessing] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [generatedBlob, setGeneratedBlob] = useState<Blob | null>(null);
+  const [currentDraftId, setCurrentDraftId] = useState(draftId || Math.random().toString(36).substr(2, 9));
+  const [isSaved, setIsSaved] = useState(true);
   
-  // Full Screen Text Editor State
   const [fullScreenTextId, setFullScreenTextId] = useState<string | null>(null);
-  
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Persistence logic
+  const saveToDrafts = useCallback(async () => {
+    const hasContent = blocks.some(b => (b.type === 'text' && b.value.trim()) || b.type === 'image');
+    if (!hasContent) return;
+    
+    setIsSaved(false);
+    await persistenceService.saveDraft({
+      id: currentDraftId,
+      type: 'text',
+      title: filename || `Doc Builder (${blocks.length} blocks)`,
+      lastEdited: Date.now(),
+      data: { blocks, filename }
+    });
+    setIsSaved(true);
+  }, [blocks, filename, currentDraftId]);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      saveToDrafts();
+    }, getAutosaveInterval());
+    return () => clearInterval(interval);
+  }, [saveToDrafts]);
 
   const getFinalFilename = () => {
     const base = filename.trim() || `document_${Date.now()}`;
@@ -42,7 +67,6 @@ const TextToPdfTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
           id: Math.random().toString(36).substr(2, 9), 
           type: 'image', 
           value: base64,
-          file: file,
           widthPercent: 100
         }]);
       };
@@ -88,7 +112,10 @@ const TextToPdfTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       }));
       const blob = await generatePdfFromMixedContent(content);
       setGeneratedBlob(blob);
-      if (type === 'download') downloadBlob(blob, getFinalFilename());
+      if (type === 'download') {
+        downloadBlob(blob, getFinalFilename());
+        await persistenceService.deleteDraft(currentDraftId);
+      }
       else if (type === 'share') await shareBlob(blob, getFinalFilename());
       else if (type === 'preview') setShowPreview(true);
     } catch (err) {
@@ -109,7 +136,12 @@ const TextToPdfTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         </button>
         <div className="text-right">
           <h2 className="text-2xl font-black text-slate-900 leading-none">Doc Builder</h2>
-          <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest mt-1">Multi-Page Editor</p>
+          <div className="flex items-center justify-end space-x-2 mt-1">
+            <span className={`text-[9px] font-black uppercase tracking-widest ${isSaved ? 'text-emerald-500' : 'text-orange-400'}`}>
+              {isSaved ? 'Cloud Saved' : 'Syncing...'}
+            </span>
+            <span className="text-[10px] font-black text-blue-600 uppercase tracking-widest">Multi-Page Editor</span>
+          </div>
         </div>
       </div>
 

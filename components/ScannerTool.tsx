@@ -1,7 +1,9 @@
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { Camera as CameraIcon, Check, Download, Share2, Eye, Plus, Trash2, ChevronLeft, ChevronRight, RefreshCw, Sun, SunDim, Edit3, X, Maximize2, FileOutput, FileSearch, Loader2 } from 'lucide-react';
+import { Camera as CameraIcon, Check, Download, Share2, Eye, Plus, Trash2, ChevronLeft, ChevronRight, RefreshCw, Sun, SunDim, Edit3, X, Maximize2, FileOutput, FileSearch, Loader2, Save } from 'lucide-react';
 import { generatePdfFromImages, downloadBlob, shareBlob } from '../services/pdfService';
+import { persistenceService, getAutosaveInterval } from '../services/persistenceService';
+import { PDFToolProps } from '../types';
 import ImageEditor from './ImageEditor';
 import PdfPreview from './PdfPreview';
 
@@ -63,11 +65,11 @@ const FullScreenGallery: React.FC<{
   );
 };
 
-const ScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
+const ScannerTool: React.FC<PDFToolProps> = ({ onBack, initialData, draftId }) => {
   const [stream, setStream] = useState<MediaStream | null>(null);
-  const [capturedImages, setCapturedImages] = useState<string[]>([]);
+  const [capturedImages, setCapturedImages] = useState<string[]>(initialData?.images || []);
   const [activePageIndex, setActivePageIndex] = useState<number>(0);
-  const [isCameraActive, setIsCameraActive] = useState(true);
+  const [isCameraActive, setIsCameraActive] = useState(!initialData?.images?.length);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isShutterActive, setIsShutterActive] = useState(false);
   const [torchOn, setTorchOn] = useState(false);
@@ -75,9 +77,32 @@ const ScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const [showGallery, setShowGallery] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [generatedBlob, setGeneratedBlob] = useState<Blob | null>(null);
+  const [currentDraftId, setCurrentDraftId] = useState(draftId || Math.random().toString(36).substr(2, 9));
+  const [isSaved, setIsSaved] = useState(true);
   
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  // Persistence logic
+  const saveToDrafts = useCallback(async () => {
+    if (capturedImages.length === 0) return;
+    setIsSaved(false);
+    await persistenceService.saveDraft({
+      id: currentDraftId,
+      type: 'scan',
+      title: `Scan (${capturedImages.length} pages)`,
+      lastEdited: Date.now(),
+      data: { images: capturedImages }
+    });
+    setIsSaved(true);
+  }, [capturedImages, currentDraftId]);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      saveToDrafts();
+    }, getAutosaveInterval());
+    return () => clearInterval(interval);
+  }, [saveToDrafts]);
 
   const startCamera = async () => {
     try {
@@ -115,12 +140,15 @@ const ScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     setIsCameraActive(false);
   };
 
-  const handleReset = () => {
-    setCapturedImages([]);
-    setActivePageIndex(0);
-    setGeneratedBlob(null);
-    setTorchOn(false);
-    startCamera();
+  const handleReset = async () => {
+    if (capturedImages.length > 0 && confirm("Discard all current scans?")) {
+      setCapturedImages([]);
+      setActivePageIndex(0);
+      setGeneratedBlob(null);
+      setTorchOn(false);
+      await persistenceService.deleteDraft(currentDraftId);
+      startCamera();
+    }
   };
 
   const capture = useCallback(() => {
@@ -151,7 +179,10 @@ const ScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       const blob = await generatePdfFromImages(capturedImages);
       setGeneratedBlob(blob);
       const filename = `Scan_${Date.now()}.pdf`;
-      if (type === 'download') downloadBlob(blob, filename);
+      if (type === 'download') {
+        downloadBlob(blob, filename);
+        await persistenceService.deleteDraft(currentDraftId);
+      }
       else if (type === 'share') await shareBlob(blob, filename);
       else if (type === 'preview') setShowPreview(true);
     } catch (err) {
@@ -162,7 +193,7 @@ const ScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   };
 
   useEffect(() => {
-    startCamera();
+    if (isCameraActive) startCamera();
     return () => stopCamera();
   }, []);
 
@@ -179,11 +210,16 @@ const ScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
           <h2 className="text-lg font-black text-slate-900">
             {isCameraActive ? 'Scanning' : 'Review'}
           </h2>
-          {capturedImages.length > 0 && (
-            <span className="text-[10px] font-black text-blue-600 uppercase tracking-widest bg-blue-50 px-2 py-0.5 rounded-full">
-              {capturedImages.length} Page{capturedImages.length > 1 ? 's' : ''}
+          <div className="flex items-center space-x-2">
+            {capturedImages.length > 0 && (
+              <span className="text-[10px] font-black text-blue-600 uppercase tracking-widest bg-blue-50 px-2 py-0.5 rounded-full">
+                {capturedImages.length} Page{capturedImages.length > 1 ? 's' : ''}
+              </span>
+            )}
+            <span className={`text-[8px] font-bold uppercase ${isSaved ? 'text-emerald-500' : 'text-orange-400'}`}>
+              {isSaved ? 'Autosaved' : 'Saving...'}
             </span>
-          )}
+          </div>
         </div>
         <button 
           onClick={handleReset} 
@@ -327,7 +363,7 @@ const ScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
           blob={generatedBlob} 
           filename={getFilename()} 
           onClose={() => setShowPreview(false)}
-          onDownload={() => downloadBlob(generatedBlob, getFilename())}
+          onDownload={() => handleAction('download')}
           onShare={() => shareBlob(generatedBlob, getFilename())}
         />
       )}
