@@ -1,15 +1,16 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { X, Check, RotateCw, FlipHorizontal, FlipVertical, Crop, RotateCcw, Sliders, Sparkles, Wand2, Type } from 'lucide-react';
+import { X, Check, RotateCw, FlipHorizontal, FlipVertical, Crop, RotateCcw, Sliders, Sparkles, Wand2, Type, Eraser } from 'lucide-react';
 import { processImage } from '../services/pdfService';
 
 interface ImageEditorProps {
   image: string;
   onSave: (processedImage: string) => void;
   onCancel: () => void;
+  mode?: 'scan' | 'photo';
 }
 
-const ImageEditor: React.FC<ImageEditorProps> = ({ image, onSave, onCancel }) => {
+const ImageEditor: React.FC<ImageEditorProps> = ({ image, onSave, onCancel, mode = 'scan' }) => {
   const [filter, setFilter] = useState('none');
   const [activeTab, setActiveTab] = useState<'presets' | 'custom'>('presets');
   const [rotate, setRotate] = useState(0);
@@ -34,7 +35,7 @@ const ImageEditor: React.FC<ImageEditorProps> = ({ image, onSave, onCancel }) =>
   const imgRef = useRef<HTMLImageElement>(null);
   const dragInfo = useRef<any>(null);
 
-  const presets = [
+  const scanPresets = [
     { id: 'none', name: 'Original', icon: <X className="w-3 h-3" /> },
     { id: 'auto-scan', name: 'Auto Scan', icon: <Sparkles className="w-3 h-3" /> },
     { id: 'text-soft', name: 'Soft Text', icon: <Type className="w-3 h-3" /> },
@@ -42,6 +43,16 @@ const ImageEditor: React.FC<ImageEditorProps> = ({ image, onSave, onCancel }) =>
     { id: 'color-scan', name: 'Color Scan', icon: <Sparkles className="w-3 h-3" /> },
     { id: 'soft-scan', name: 'Soft Scan', icon: <Wand2 className="w-3 h-3" /> },
   ];
+
+  const photoPresets = [
+    { id: 'none', name: 'Original', icon: <X className="w-3 h-3" /> },
+    { id: 'auto-enhance', name: 'Auto Enhance', icon: <Sparkles className="w-3 h-3" /> },
+    { id: 'color-boost', name: 'Color Boost', icon: <Sparkles className="w-3 h-3" /> },
+    { id: 'grayscale', name: 'Grayscale', icon: <Wand2 className="w-3 h-3" /> },
+    { id: 'text-soft', name: 'B&W Soft', icon: <Type className="w-3 h-3" /> },
+  ];
+
+  const currentPresets = mode === 'scan' ? scanPresets : photoPresets;
 
   const handleSave = async () => {
     setIsProcessing(true);
@@ -189,14 +200,14 @@ const ImageEditor: React.FC<ImageEditorProps> = ({ image, onSave, onCancel }) =>
               <Sparkles className="w-3.5 h-3.5" /> <span>Presets</span>
             </button>
             <button onClick={() => setActiveTab('custom')} className={`flex-1 flex items-center justify-center space-x-2 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'custom' ? 'bg-white text-slate-900 shadow-lg' : 'text-white/40'}`}>
-              <Sliders className="w-3.5 h-3.5" /> <span>Manual</span>
+              <Sliders className="w-3.5 h-3.5" /> <span>Custom {mode === 'scan' ? 'Scan' : ''}</span>
             </button>
           </div>
 
           <div className="min-h-[100px] flex items-center">
             {activeTab === 'presets' ? (
               <div className="flex space-x-2 overflow-x-auto pb-2 scrollbar-hide px-2 w-full">
-                {presets.map(p => (
+                {currentPresets.map(p => (
                   <button
                     key={p.id}
                     onClick={() => setFilter(p.id)}
@@ -209,10 +220,13 @@ const ImageEditor: React.FC<ImageEditorProps> = ({ image, onSave, onCancel }) =>
               </div>
             ) : (
               <div className="grid grid-cols-2 gap-x-6 gap-y-3 px-4 w-full">
-                <SliderControl label="Brightness" value={custom.brightness} min={-50} max={50} onChange={(v: any) => setCustom({...custom, brightness: v})} />
-                <SliderControl label="Contrast" value={custom.contrast} min={-50} max={50} onChange={(v: any) => setCustom({...custom, contrast: v})} />
+                <SliderControl label="Brightness" value={custom.brightness} min={-100} max={100} onChange={(v: any) => setCustom({...custom, brightness: v})} />
+                <SliderControl label="Contrast" value={custom.contrast} min={-100} max={100} onChange={(v: any) => setCustom({...custom, contrast: v})} />
                 <SliderControl label="Shadow Recovery" value={custom.shadows} min={0} max={100} onChange={(v: any) => setCustom({...custom, shadows: v})} />
                 <SliderControl label="Sharpness" value={custom.sharpness} min={0} max={100} onChange={(v: any) => setCustom({...custom, sharpness: v})} />
+                <div className="col-span-2">
+                  <SliderControl label="Noise Reduction" value={custom.denoise} min={0} max={100} onChange={(v: any) => setCustom({...custom, denoise: v})} />
+                </div>
               </div>
             )}
           </div>

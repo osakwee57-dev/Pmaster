@@ -59,10 +59,13 @@ const EditPdfTool: React.FC<PDFToolProps> = ({ onBack, initialData, draftId }) =
     if (files.length === 0) return;
 
     setIsProcessing(true);
+    setConversionStatus(`Preparing ${files.length} files...`);
     
     // Process each file sequentially to avoid memory spikes and ensure state updates correctly
-    for (const file of files) {
+    for (let fIdx = 0; fIdx < files.length; fIdx++) {
+      const file = files[fIdx];
       try {
+        setConversionStatus(`Loading file ${fIdx + 1}/${files.length}: ${file.name}`);
         const buffer = await file.arrayBuffer();
         const pdfDoc = await PDFDocument.load(buffer);
         const sourceId = Math.random().toString(36).substr(2, 9);
@@ -92,6 +95,7 @@ const EditPdfTool: React.FC<PDFToolProps> = ({ onBack, initialData, draftId }) =
 
       } catch (err) {
         console.error("Error loading PDF", err);
+        setConversionStatus(`Error loading ${file.name}`);
       }
     }
 
@@ -124,6 +128,7 @@ const EditPdfTool: React.FC<PDFToolProps> = ({ onBack, initialData, draftId }) =
   const handleMergeAction = async (type: 'download' | 'share' | 'preview') => {
     if (blocks.length === 0) return alert("Please add at least one page.");
     setIsProcessing(true);
+    setConversionStatus("Combining PDF buffers...");
     try {
       const pageSpecs = blocks.map(b => {
         if (b.type === 'original') {
@@ -185,6 +190,13 @@ const EditPdfTool: React.FC<PDFToolProps> = ({ onBack, initialData, draftId }) =
                  </div>
                  {blocks.length > 0 && <button onClick={() => { setBlocks([]); setSources([]); }} className="text-[10px] font-black text-slate-300 hover:text-red-500 uppercase tracking-widest">Clear Canvas</button>}
               </div>
+
+              {isProcessing && (
+                <div className="mb-4 bg-slate-50 p-4 rounded-2xl border border-slate-100 flex items-center text-xs font-bold text-slate-600">
+                  <Loader2 className="w-4 h-4 mr-3 animate-spin text-emerald-500" />
+                  {conversionStatus}
+                </div>
+              )}
 
               {blocks.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-80 border-4 border-dashed border-slate-100 rounded-[2rem] text-slate-300">

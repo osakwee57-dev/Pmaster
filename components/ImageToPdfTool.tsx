@@ -356,6 +356,7 @@ const ImageToPdfTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       {editingIndex !== null && (
         <ImageEditor 
           image={images[editingIndex]} 
+          mode="photo"
           onSave={(img) => {
             const next = [...images];
             next[editingIndex] = img;
