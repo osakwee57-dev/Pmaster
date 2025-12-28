@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { X, Check, RotateCw, FlipHorizontal, FlipVertical, Crop, RotateCcw, Sliders, Sparkles, Wand2, Type, Eraser } from 'lucide-react';
+import { X, Check, RotateCw, FlipHorizontal, FlipVertical, Crop, RotateCcw, Sliders, Sparkles, Wand2, Type, RotateCcw as ResetIcon } from 'lucide-react';
 import { processImage } from '../services/pdfService';
 
 interface ImageEditorProps {
@@ -20,7 +20,6 @@ const ImageEditor: React.FC<ImageEditorProps> = ({ image, onSave, onCancel, mode
   const [isCropMode, setIsCropMode] = useState(false);
   const [cropRect, setCropRect] = useState({ x: 10, y: 10, width: 80, height: 80 });
   
-  // Custom Sliders
   const [custom, setCustom] = useState({
     brightness: 0,
     contrast: 0,
@@ -61,6 +60,7 @@ const ImageEditor: React.FC<ImageEditorProps> = ({ image, onSave, onCancel, mode
       const isRotated = (rotate / 90) % 2 !== 0;
       const targetW = isRotated ? imgNaturalSize.h : imgNaturalSize.w;
       const targetH = isRotated ? imgNaturalSize.w : imgNaturalSize.h;
+      
       cropPx = {
         x: (cropRect.x / 100) * targetW,
         y: (cropRect.y / 100) * targetH,
@@ -92,10 +92,14 @@ const ImageEditor: React.FC<ImageEditorProps> = ({ image, onSave, onCancel, mode
     return () => window.removeEventListener('resize', updateDisplaySize);
   }, [updateDisplaySize]);
 
-  const handleDragMove = useCallback((e: any) => {
+  // Handle both mouse and touch moves
+  const handleDragMove = useCallback((e: MouseEvent | TouchEvent) => {
     if (!dragInfo.current || !imgDisplaySize.w || !imgDisplaySize.h) return;
+    
+    // Support touch and mouse events
+    const point = 'touches' in e ? e.touches[0] : (e as MouseEvent);
     const info = dragInfo.current;
-    const point = 'touches' in e ? e.touches[0] : e;
+    
     const dx = ((point.clientX - info.startX) / imgDisplaySize.w) * 100;
     const dy = ((point.clientY - info.startY) / imgDisplaySize.h) * 100;
     
@@ -105,34 +109,59 @@ const ImageEditor: React.FC<ImageEditorProps> = ({ image, onSave, onCancel, mode
         next.x = Math.max(0, Math.min(100 - info.startRect.width, info.startRect.x + dx));
         next.y = Math.max(0, Math.min(100 - info.startRect.height, info.startRect.y + dy));
       } else {
+        // Min dimension constraint
+        const minDim = 10;
+        
         if (info.type.includes('left')) {
-          const newX = Math.max(0, Math.min(info.startRect.x + info.startRect.width - 5, info.startRect.x + dx));
+          const newX = Math.max(0, Math.min(info.startRect.x + info.startRect.width - minDim, info.startRect.x + dx));
           next.width = info.startRect.width + (info.startRect.x - newX);
           next.x = newX;
         }
-        if (info.type.includes('right')) next.width = Math.max(5, Math.min(100 - info.startRect.x, info.startRect.width + dx));
+        if (info.type.includes('right')) {
+          next.width = Math.max(minDim, Math.min(100 - info.startRect.x, info.startRect.width + dx));
+        }
         if (info.type.includes('top')) {
-          const newY = Math.max(0, Math.min(info.startRect.y + info.startRect.height - 5, info.startRect.y + dy));
+          const newY = Math.max(0, Math.min(info.startRect.y + info.startRect.height - minDim, info.startRect.y + dy));
           next.height = info.startRect.height + (info.startRect.y - newY);
           next.y = newY;
         }
-        if (info.type.includes('bottom')) next.height = Math.max(5, Math.min(100 - info.startRect.y, info.startRect.height + dy));
+        if (info.type.includes('bottom')) {
+          next.height = Math.max(minDim, Math.min(100 - info.startRect.y, info.startRect.height + dy));
+        }
       }
       return next;
     });
+
+    // Prevent scrolling while cropping on touch
+    if ('touches' in e) e.preventDefault();
   }, [imgDisplaySize]);
+
+  const handleDragStart = (e: React.MouseEvent | React.TouchEvent, type: string) => {
+    e.stopPropagation();
+    const point = 'touches' in e ? e.touches[0] : (e as React.MouseEvent);
+    dragInfo.current = { 
+      type, 
+      startX: point.clientX, 
+      startY: point.clientY, 
+      startRect: { ...cropRect } 
+    };
+  };
 
   useEffect(() => {
     if (isCropMode) {
+      const onEnd = () => { dragInfo.current = null; };
       window.addEventListener('mousemove', handleDragMove);
-      window.addEventListener('mouseup', () => dragInfo.current = null);
+      window.addEventListener('mouseup', onEnd);
       window.addEventListener('touchmove', handleDragMove, { passive: false });
-      window.addEventListener('touchend', () => dragInfo.current = null);
+      window.addEventListener('touchend', onEnd);
+      
+      return () => {
+        window.removeEventListener('mousemove', handleDragMove);
+        window.removeEventListener('mouseup', onEnd);
+        window.removeEventListener('touchmove', handleDragMove);
+        window.removeEventListener('touchend', onEnd);
+      };
     }
-    return () => {
-      window.removeEventListener('mousemove', handleDragMove);
-      window.removeEventListener('touchmove', handleDragMove);
-    };
   }, [isCropMode, handleDragMove]);
 
   const SliderControl = ({ label, value, min, max, onChange }: any) => (
@@ -185,9 +214,40 @@ const ImageEditor: React.FC<ImageEditorProps> = ({ image, onSave, onCancel, mode
                 className="absolute border-2 border-blue-500 shadow-[0_0_0_9999px_rgba(0,0,0,0.6)] z-20"
                 style={{ left: `${cropRect.x}%`, top: `${cropRect.y}%`, width: `${cropRect.width}%`, height: `${cropRect.height}%` }}
               >
-                <div className="absolute inset-0 cursor-move" onMouseDown={(e) => { e.stopPropagation(); dragInfo.current = { type: 'center', startX: e.clientX, startY: e.clientY, startRect: { ...cropRect } }; }} />
-                {['top-left', 'top-right', 'bottom-left', 'bottom-right'].map(pos => (
-                  <div key={pos} className="absolute w-6 h-6 bg-white border-2 border-blue-500 rounded-full z-30 shadow-lg -translate-x-1/2 -translate-y-1/2 cursor-crosshair" style={{ left: pos.includes('right') ? '100%' : '0%', top: pos.includes('bottom') ? '100%' : '0%' }} onMouseDown={(e) => { e.stopPropagation(); dragInfo.current = { type: pos, startX: e.clientX, startY: e.clientY, startRect: { ...cropRect } }; }} />
+                {/* Center Drag Area */}
+                <div 
+                  className="absolute inset-0 cursor-move" 
+                  onMouseDown={(e) => handleDragStart(e, 'center')} 
+                  onTouchStart={(e) => handleDragStart(e, 'center')}
+                >
+                  {/* Visual Grid */}
+                  <div className="w-full h-full grid grid-cols-3 grid-rows-3 opacity-20 pointer-events-none">
+                    {[...Array(9)].map((_, i) => (
+                      <div key={i} className="border border-white/40" />
+                    ))}
+                  </div>
+                </div>
+
+                {/* Resizing Handles */}
+                {[
+                  { pos: 'top-left', cursor: 'nw-resize' },
+                  { pos: 'top-right', cursor: 'ne-resize' },
+                  { pos: 'bottom-left', cursor: 'sw-resize' },
+                  { pos: 'bottom-right', cursor: 'se-resize' }
+                ].map(handle => (
+                  <div 
+                    key={handle.pos} 
+                    className="absolute w-8 h-8 -translate-x-1/2 -translate-y-1/2 z-30 group" 
+                    style={{ 
+                      left: handle.pos.includes('right') ? '100%' : '0%', 
+                      top: handle.pos.includes('bottom') ? '100%' : '0%',
+                      cursor: handle.cursor
+                    }} 
+                    onMouseDown={(e) => handleDragStart(e, handle.pos)}
+                    onTouchStart={(e) => handleDragStart(e, handle.pos)}
+                  >
+                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-4 h-4 bg-white border-2 border-blue-500 rounded-full shadow-lg group-active:scale-125 transition-transform" />
+                  </div>
                 ))}
               </div>
             )}
@@ -200,7 +260,7 @@ const ImageEditor: React.FC<ImageEditorProps> = ({ image, onSave, onCancel, mode
               <Sparkles className="w-3.5 h-3.5" /> <span>Presets</span>
             </button>
             <button onClick={() => setActiveTab('custom')} className={`flex-1 flex items-center justify-center space-x-2 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'custom' ? 'bg-white text-slate-900 shadow-lg' : 'text-white/40'}`}>
-              <Sliders className="w-3.5 h-3.5" /> <span>Custom {mode === 'scan' ? 'Scan' : ''}</span>
+              <Sliders className="w-3.5 h-3.5" /> <span>Fine Tune</span>
             </button>
           </div>
 
@@ -233,10 +293,10 @@ const ImageEditor: React.FC<ImageEditorProps> = ({ image, onSave, onCancel, mode
 
           <div className="grid grid-cols-5 gap-4 p-4 bg-white/5 rounded-[2rem] border border-white/10 mx-2">
             <button onClick={() => { setIsCropMode(!isCropMode); if (!isCropMode) setCropRect({ x: 10, y: 10, width: 80, height: 80 }); }} className={`flex flex-col items-center space-y-2 transition-colors ${isCropMode ? 'text-blue-400' : 'text-white/60'}`}><Crop className="w-5 h-5" /><span className="text-[9px] font-bold uppercase">Crop</span></button>
-            <button onClick={() => { setRotate(r => (r + 90) % 360); setTimeout(updateDisplaySize, 350); }} className="flex flex-col items-center space-y-2 text-white/60"><RotateCw className="w-5 h-5" /><span className="text-[9px] font-bold uppercase">Rotate</span></button>
+            <button onClick={() => { setRotate(r => (r + 90) % 360); setTimeout(updateDisplaySize, 350); }} className="flex flex-col items-center space-y-2 text-white/60 group"><RotateCw className="w-5 h-5 group-active:rotate-90 transition-transform" /><span className="text-[9px] font-bold uppercase">Rotate</span></button>
             <button onClick={() => setFlipH(f => !f)} className={`flex flex-col items-center space-y-2 ${flipH ? 'text-blue-400' : 'text-white/60'}`}><FlipHorizontal className="w-5 h-5" /><span className="text-[9px] font-bold uppercase">Flip H</span></button>
             <button onClick={() => setFlipV(f => !f)} className={`flex flex-col items-center space-y-2 ${flipV ? 'text-blue-400' : 'text-white/60'}`}><FlipVertical className="w-5 h-5" /><span className="text-[9px] font-bold uppercase">Flip V</span></button>
-            <button onClick={() => { setFilter('none'); setRotate(0); setFlipH(false); setFlipV(false); setIsCropMode(false); setCustom({brightness: 0, contrast: 0, sharpness: 20, shadows: 10, denoise: 5}); }} className="flex flex-col items-center space-y-2 text-red-400/80"><RotateCcw className="w-5 h-5" /><span className="text-[9px] font-bold uppercase">Reset</span></button>
+            <button onClick={() => { setFilter('none'); setRotate(0); setFlipH(false); setFlipV(false); setIsCropMode(false); setCustom({brightness: 0, contrast: 0, sharpness: 20, shadows: 10, denoise: 5}); }} className="flex flex-col items-center space-y-2 text-red-400/80"><ResetIcon className="w-5 h-5" /><span className="text-[9px] font-bold uppercase">Reset</span></button>
           </div>
         </div>
       </div>
