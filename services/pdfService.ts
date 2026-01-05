@@ -105,39 +105,31 @@ export const processImage = async (base64: string, options: ProcessOptions): Pro
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
       const data = imageData.data;
       
-      // Advanced Scan & Photo Filter Logic
       for (let i = 0; i < data.length; i += 4) {
         let r = data[i], g = data[i+1], b = data[i+2];
         let lum = 0.299 * r + 0.587 * g + 0.114 * b;
 
-        // Custom Adjustments (Manual Tuning)
         if (options.custom) {
           const { brightness, contrast, shadows } = options.custom;
-          // Apply brightness
           const bVal = (brightness / 100) * 255;
           r += bVal; g += bVal; b += bVal;
-          // Apply shadows (Lift only dark regions)
           if (lum < 100) {
             const shadowBoost = (shadows / 100) * (100 - lum);
             r += shadowBoost; g += shadowBoost; b += shadowBoost;
           }
-          // Apply contrast
           const cFactor = (259 * (contrast + 255)) / (255 * (259 - contrast));
           r = cFactor * (r - 128) + 128;
           g = cFactor * (g - 128) + 128;
           b = cFactor * (b - 128) + 128;
         }
 
-        // Apply Presets
         if (options.filter && options.filter !== 'none') {
           switch (options.filter) {
             case 'auto-scan': {
-              // Whitening background + preserving ink
               if (lum > 160) {
                 const w = (lum - 160) / 95;
                 r += 40 * w; g += 40 * w; b += 40 * w;
               }
-              // Contrast boost for text
               const factor = 1.2;
               r = factor * (r - 128) + 128;
               g = factor * (g - 128) + 128;
@@ -145,7 +137,6 @@ export const processImage = async (base64: string, options: ProcessOptions): Pro
               break;
             }
             case 'text-soft': {
-              // Adaptive non-linear thresholding
               let v = lum;
               if (v > 135) v = 255;
               else if (v < 85) v = 20;
@@ -154,12 +145,11 @@ export const processImage = async (base64: string, options: ProcessOptions): Pro
               break;
             }
             case 'grayscale': {
-              const avg = lum * 1.05; // Gentle contrast
+              const avg = lum * 1.05; 
               r = g = b = avg;
               break;
             }
             case 'color-scan': {
-              // Whiten background while keeping colors
               if (lum > 185) {
                 r = Math.min(255, r + 30);
                 g = Math.min(255, g + 30);
@@ -169,7 +159,6 @@ export const processImage = async (base64: string, options: ProcessOptions): Pro
               break;
             }
             case 'soft-scan': {
-              // Lower harsh shadows, smooth contrast
               if (lum < 110) {
                 const lift = (110 - lum) * 0.4;
                 r += lift; g += lift; b += lift;
@@ -181,7 +170,6 @@ export const processImage = async (base64: string, options: ProcessOptions): Pro
               r = g = b = val;
               break;
             }
-            // Multiple Photos Presets
             case 'auto-enhance': {
               r *= 1.05; g *= 1.05; b *= 1.05;
               const factor = 1.1;
@@ -204,9 +192,8 @@ export const processImage = async (base64: string, options: ProcessOptions): Pro
 
       ctx.putImageData(imageData, 0, 0);
       
-      // Simple sharpening if requested
       if (options.custom && options.custom.sharpness > 0) {
-        ctx.filter = `contrast(1.1) brightness(1.02) saturate(1.05)`; // Browser-side quick polish
+        ctx.filter = `contrast(1.1) brightness(1.02) saturate(1.05)`; 
       }
 
       ctx.restore();
@@ -288,17 +275,58 @@ export const generateAdvancedPdfFromImages = async (images: string[], options: A
 
 export const generatePdfFromMixedContent = async (content: any[]): Promise<Blob> => {
   const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4', compress: true });
-  let cursorY = 10;
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const margin = 20;
+  const bottomMargin = 20;
+  const usableWidth = pageWidth - (margin * 2);
+  const usableHeight = pageHeight - margin - bottomMargin;
+  
+  let cursorY = margin;
+
   for (const block of content) {
-    if (block.type === 'text') {
-      const lines = doc.splitTextToSize(block.value, 190);
-      doc.text(lines, 10, cursorY);
-      cursorY += lines.length * 7;
-    } else {
-      doc.addImage(block.value, 'JPEG', 10, cursorY, 190, 100);
-      cursorY += 110;
+    if (block.type === 'text' && block.value) {
+      // Split text into lines that fit the page width
+      const lines: string[] = doc.splitTextToSize(block.value, usableWidth);
+      const lineHeight = 7;
+
+      for (const line of lines) {
+        // If next line exceeds page, add a new page
+        if (cursorY + lineHeight > pageHeight - bottomMargin) {
+          doc.addPage();
+          cursorY = margin;
+        }
+        doc.text(line, margin, cursorY);
+        cursorY += lineHeight;
+      }
+      cursorY += 5; // Paragraph spacing
+    } else if (block.type === 'image' && block.value) {
+      const widthPercent = block.widthPercent || 100;
+      let displayWidth = usableWidth * (widthPercent / 100);
+      
+      // Get natural image properties to maintain aspect ratio
+      const imgProps = doc.getImageProperties(block.value);
+      const aspectRatio = imgProps.height / imgProps.width;
+      let displayHeight = displayWidth * aspectRatio;
+
+      // If image is too tall for a single page, scale it down
+      if (displayHeight > usableHeight) {
+        const scale = usableHeight / displayHeight;
+        displayWidth *= scale;
+        displayHeight *= scale;
+      }
+
+      // If image doesn't fit on current page, move to next page
+      if (cursorY + displayHeight > pageHeight - bottomMargin) {
+        doc.addPage();
+        cursorY = margin;
+      }
+
+      doc.addImage(block.value, 'JPEG', margin, cursorY, displayWidth, displayHeight);
+      cursorY += displayHeight + 10; // Image spacing
     }
   }
+
   return doc.output('blob') as unknown as Blob;
 };
 
