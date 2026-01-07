@@ -3,6 +3,8 @@ import { jsPDF } from 'jspdf';
 import { PDFDocument } from 'pdf-lib';
 import Tesseract from 'tesseract.js';
 import * as pdfjsLib from 'pdfjs-dist';
+import * as mammoth from 'mammoth';
+import { Document, Packer, Paragraph, TextRun } from 'docx';
 
 // Initialize PDF.js worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://esm.sh/pdfjs-dist@4.10.38/build/pdf.worker.mjs`;
@@ -55,6 +57,25 @@ export const extractTextFromPdf = async (buffer: ArrayBuffer, onProgress?: (msg:
   }
 
   return { fullText, pages };
+};
+
+export const extractTextFromDocx = async (buffer: ArrayBuffer): Promise<string> => {
+  const result = await mammoth.extractRawText({ arrayBuffer: buffer });
+  return result.value;
+};
+
+export const generateDocxFromText = async (text: string): Promise<Blob> => {
+  const doc = new Document({
+    sections: [{
+      properties: {},
+      children: text.split('\n').map(line => new Paragraph({
+        children: [new TextRun(line)],
+      })),
+    }],
+  });
+
+  const buffer = await Packer.toBuffer(doc);
+  return new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
 };
 
 export interface ProcessOptions {
@@ -286,12 +307,9 @@ export const generatePdfFromMixedContent = async (content: any[]): Promise<Blob>
 
   for (const block of content) {
     if (block.type === 'text' && block.value) {
-      // Split text into lines that fit the page width
       const lines: string[] = doc.splitTextToSize(block.value, usableWidth);
       const lineHeight = 7;
-
       for (const line of lines) {
-        // If next line exceeds page, add a new page
         if (cursorY + lineHeight > pageHeight - bottomMargin) {
           doc.addPage();
           cursorY = margin;
@@ -299,31 +317,72 @@ export const generatePdfFromMixedContent = async (content: any[]): Promise<Blob>
         doc.text(line, margin, cursorY);
         cursorY += lineHeight;
       }
-      cursorY += 5; // Paragraph spacing
+      cursorY += 5;
     } else if (block.type === 'image' && block.value) {
       const widthPercent = block.widthPercent || 100;
       let displayWidth = usableWidth * (widthPercent / 100);
-      
-      // Get natural image properties to maintain aspect ratio
       const imgProps = doc.getImageProperties(block.value);
       const aspectRatio = imgProps.height / imgProps.width;
       let displayHeight = displayWidth * aspectRatio;
-
-      // If image is too tall for a single page, scale it down
       if (displayHeight > usableHeight) {
         const scale = usableHeight / displayHeight;
         displayWidth *= scale;
         displayHeight *= scale;
       }
-
-      // If image doesn't fit on current page, move to next page
       if (cursorY + displayHeight > pageHeight - bottomMargin) {
         doc.addPage();
         cursorY = margin;
       }
-
       doc.addImage(block.value, 'JPEG', margin, cursorY, displayWidth, displayHeight);
-      cursorY += displayHeight + 10; // Image spacing
+      cursorY += displayHeight + 10;
+    } else if (block.type === 'table' && block.rows && block.cols && block.data) {
+      const tableWidth = usableWidth * ((block.widthPercent || 100) / 100);
+      const baseCellWidth = tableWidth / block.cols;
+      const baseCellHeight = 8;
+      const cellPadding = 2;
+      
+      doc.setFontSize(10);
+      
+      // We process row by row
+      for (let r = 0; r < block.rows; r++) {
+        // First pass: Calculate max height for this row based on all cells (including merged ones)
+        let maxRowHeight = baseCellHeight;
+        const rowData = block.data[r];
+        
+        rowData.forEach((cell: any, c: number) => {
+          if (!cell || cell.mergedInto) return;
+          const colSpan = cell.colSpan || 1;
+          const currentCellWidth = baseCellWidth * colSpan;
+          const wrappedLines = doc.splitTextToSize(cell.content || '', currentCellWidth - (cellPadding * 2));
+          const h = (wrappedLines.length * 5) + (cellPadding * 2);
+          if (h > maxRowHeight) maxRowHeight = h;
+        });
+
+        // Pagination check
+        if (cursorY + maxRowHeight > pageHeight - bottomMargin) {
+          doc.addPage();
+          cursorY = margin;
+        }
+
+        // Second pass: Draw the row
+        rowData.forEach((cell: any, c: number) => {
+          if (!cell || cell.mergedInto) return;
+          
+          const colSpan = cell.colSpan || 1;
+          const currentCellWidth = baseCellWidth * colSpan;
+          const x = margin + (c * baseCellWidth);
+          
+          // Draw Border
+          doc.rect(x, cursorY, currentCellWidth, maxRowHeight);
+          
+          // Draw Text
+          const wrappedLines = doc.splitTextToSize(cell.content || '', currentCellWidth - (cellPadding * 2));
+          doc.text(wrappedLines, x + cellPadding, cursorY + cellPadding + 4);
+        });
+        
+        cursorY += maxRowHeight;
+      }
+      cursorY += 10;
     }
   }
 

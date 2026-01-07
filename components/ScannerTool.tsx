@@ -79,6 +79,7 @@ const ScannerTool: React.FC<PDFToolProps> = ({ onBack, initialData, draftId }) =
   const [generatedBlob, setGeneratedBlob] = useState<Blob | null>(null);
   const [currentDraftId, setCurrentDraftId] = useState(draftId || Math.random().toString(36).substr(2, 9));
   const [isSaved, setIsSaved] = useState(true);
+  const [filename, setFilename] = useState(initialData?.filename || '');
   
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -90,12 +91,12 @@ const ScannerTool: React.FC<PDFToolProps> = ({ onBack, initialData, draftId }) =
     await persistenceService.saveDraft({
       id: currentDraftId,
       type: 'scan',
-      title: `Scan (${capturedImages.length} pages)`,
+      title: filename || `Scan (${capturedImages.length} pages)`,
       lastEdited: Date.now(),
-      data: { images: capturedImages }
+      data: { images: capturedImages, filename }
     });
     setIsSaved(true);
-  }, [capturedImages, currentDraftId]);
+  }, [capturedImages, currentDraftId, filename]);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -146,6 +147,7 @@ const ScannerTool: React.FC<PDFToolProps> = ({ onBack, initialData, draftId }) =
       setActivePageIndex(0);
       setGeneratedBlob(null);
       setTorchOn(false);
+      setFilename('');
       await persistenceService.deleteDraft(currentDraftId);
       startCamera();
     }
@@ -172,18 +174,23 @@ const ScannerTool: React.FC<PDFToolProps> = ({ onBack, initialData, draftId }) =
     }
   }, [stream]);
 
+  const getFinalFilename = () => {
+    const base = filename.trim() || `Scan_${Date.now()}`;
+    return base.toLowerCase().endsWith('.pdf') ? base : `${base}.pdf`;
+  };
+
   const handleAction = async (type: 'download' | 'share' | 'preview') => {
     if (capturedImages.length === 0) return;
     setIsProcessing(true);
     try {
       const blob = await generatePdfFromImages(capturedImages);
       setGeneratedBlob(blob);
-      const filename = `Scan_${Date.now()}.pdf`;
+      const finalName = getFinalFilename();
       if (type === 'download') {
-        downloadBlob(blob, filename);
+        downloadBlob(blob, finalName);
         await persistenceService.deleteDraft(currentDraftId);
       }
-      else if (type === 'share') await shareBlob(blob, filename);
+      else if (type === 'share') await shareBlob(blob, finalName);
       else if (type === 'preview') setShowPreview(true);
     } catch (err) {
       alert("Action failed.");
@@ -196,8 +203,6 @@ const ScannerTool: React.FC<PDFToolProps> = ({ onBack, initialData, draftId }) =
     if (isCameraActive) startCamera();
     return () => stopCamera();
   }, []);
-
-  const getFilename = () => `Scan_${Date.now()}.pdf`;
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col pb-24">
@@ -307,29 +312,42 @@ const ScannerTool: React.FC<PDFToolProps> = ({ onBack, initialData, draftId }) =
               </button>
             </div>
 
-            <div className="bg-white p-6 rounded-[2rem] shadow-xl border border-slate-100 grid grid-cols-2 gap-4">
-              <button 
-                onClick={() => handleAction('download')}
-                disabled={isProcessing}
-                className="flex flex-col items-center justify-center bg-blue-600 text-white py-6 rounded-2xl font-black shadow-lg hover:bg-blue-700 active:scale-95 transition-all"
-              >
-                <Download className="w-6 h-6 mb-2" /> Download PDF
-              </button>
-              <button 
-                onClick={() => handleAction('share')}
-                disabled={isProcessing}
-                className="flex flex-col items-center justify-center bg-emerald-600 text-white py-6 rounded-2xl font-black shadow-lg hover:bg-emerald-700 active:scale-95 transition-all"
-              >
-                <Share2 className="w-6 h-6 mb-2" /> Share PDF
-              </button>
-              <button 
-                onClick={() => handleAction('preview')}
-                disabled={isProcessing}
-                className="col-span-2 py-4 bg-slate-900 text-white rounded-2xl font-black shadow-lg flex items-center justify-center active:scale-95 transition-all"
-              >
-                {isProcessing ? <Loader2 className="w-5 h-5 mr-2 animate-spin" /> : <Eye className="w-5 h-5 mr-2" />} 
-                Preview & Inspect PDF
-              </button>
+            <div className="bg-white p-8 rounded-[2.5rem] shadow-xl border border-slate-100 space-y-6">
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase text-slate-400 px-2 tracking-widest">Document Name</label>
+                <input 
+                  type="text"
+                  placeholder="E.g. Monthly_Receipts"
+                  value={filename}
+                  onChange={(e) => setFilename(e.target.value)}
+                  className="w-full px-6 py-4 rounded-2xl border-2 border-slate-50 focus:border-blue-500 outline-none bg-slate-50 font-bold text-slate-800 transition-all"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <button 
+                  onClick={() => handleAction('download')}
+                  disabled={isProcessing}
+                  className="flex flex-col items-center justify-center bg-blue-600 text-white py-6 rounded-2xl font-black shadow-lg hover:bg-blue-700 active:scale-95 transition-all"
+                >
+                  <Download className="w-6 h-6 mb-2" /> Download PDF
+                </button>
+                <button 
+                  onClick={() => handleAction('share')}
+                  disabled={isProcessing}
+                  className="flex flex-col items-center justify-center bg-emerald-600 text-white py-6 rounded-2xl font-black shadow-lg hover:bg-emerald-700 active:scale-95 transition-all"
+                >
+                  <Share2 className="w-6 h-6 mb-2" /> Share PDF
+                </button>
+                <button 
+                  onClick={() => handleAction('preview')}
+                  disabled={isProcessing}
+                  className="col-span-2 py-4 bg-slate-900 text-white rounded-2xl font-black shadow-lg flex items-center justify-center active:scale-95 transition-all"
+                >
+                  {isProcessing ? <Loader2 className="w-5 h-5 mr-2 animate-spin" /> : <Eye className="w-5 h-5 mr-2" />} 
+                  Preview & Inspect PDF
+                </button>
+              </div>
             </div>
           </div>
         )}
@@ -361,10 +379,10 @@ const ScannerTool: React.FC<PDFToolProps> = ({ onBack, initialData, draftId }) =
       {showPreview && generatedBlob && (
         <PdfPreview 
           blob={generatedBlob} 
-          filename={getFilename()} 
+          filename={getFinalFilename()} 
           onClose={() => setShowPreview(false)}
           onDownload={() => handleAction('download')}
-          onShare={() => shareBlob(generatedBlob, getFilename())}
+          onShare={() => shareBlob(generatedBlob, getFinalFilename())}
         />
       )}
     </div>
