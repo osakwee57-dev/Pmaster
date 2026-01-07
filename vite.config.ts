@@ -22,6 +22,8 @@ export default defineConfig({
         'pdf-lib',
         'tesseract.js',
         'pdfjs-dist',
+        'mammoth',
+        'docx',
         '@vercel/analytics/react'
       ],
     },
