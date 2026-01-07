@@ -15,5 +15,21 @@
   "display": "standalone",
   "scope": "/",
   "theme_color": "#2563eb",
-  "description": "Professional client-side PDF utility for scanning and document building."
+  "description": "Professional client-side PDF utility for scanning and document building.",
+  "file_handlers": [
+    {
+      "action": "/",
+      "accept": {
+        "application/pdf": [".pdf"]
+      },
+      "icons": [
+        {
+          "src": "https://cdn-icons-png.flaticon.com/512/337/337946.png",
+          "sizes": "512x512",
+          "type": "image/png"
+        }
+      ],
+      "launch_type": "single-client"
+    }
+  ]
 }

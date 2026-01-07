@@ -20,7 +20,11 @@ type EditBlock =
 
 type TargetFormat = 'pdf' | 'docx' | 'txt' | 'images';
 
-const EditPdfTool: React.FC<PDFToolProps> = ({ onBack, initialData, draftId }) => {
+interface ExtendedPDFToolProps extends PDFToolProps {
+  initialFile?: File;
+}
+
+const EditPdfTool: React.FC<ExtendedPDFToolProps> = ({ onBack, initialData, draftId, initialFile }) => {
   const [activeTab, setActiveTab] = useState<'merge' | 'convert'>(initialData?.activeTab || 'merge');
   const [sources, setSources] = useState<PdfSource[]>(initialData?.sources || []);
   const [blocks, setBlocks] = useState<EditBlock[]>(initialData?.blocks || []);
@@ -38,6 +42,13 @@ const EditPdfTool: React.FC<PDFToolProps> = ({ onBack, initialData, draftId }) =
   const [conversionStatus, setConversionStatus] = useState("");
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Auto-process initial system file
+  useEffect(() => {
+    if (initialFile) {
+      processFiles([initialFile]);
+    }
+  }, [initialFile]);
 
   const saveToDrafts = useCallback(async () => {
     if (blocks.length === 0 && !convertFile) return;
@@ -57,10 +68,7 @@ const EditPdfTool: React.FC<PDFToolProps> = ({ onBack, initialData, draftId }) =
     return () => clearInterval(interval);
   }, [saveToDrafts]);
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []) as File[];
-    if (files.length === 0) return;
-
+  const processFiles = async (files: File[]) => {
     setIsProcessing(true);
     setConversionStatus(`Preparing ${files.length} files...`);
     
@@ -101,6 +109,12 @@ const EditPdfTool: React.FC<PDFToolProps> = ({ onBack, initialData, draftId }) =
     }
 
     setIsProcessing(false);
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []) as File[];
+    if (files.length === 0) return;
+    await processFiles(files);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -158,10 +172,8 @@ const EditPdfTool: React.FC<PDFToolProps> = ({ onBack, initialData, draftId }) =
           finalBlob = new Blob([extractedText], { type: 'text/plain' });
           break;
         case 'images':
-          // For a true "Slide/Image" export in browser we use the PDF renderer
           const pdfBuffer = await convertFile.arrayBuffer();
-          const pdfBlob = new Blob([pdfBuffer], { type: 'application/pdf' });
-          finalBlob = pdfBlob; // Simplification: Provide high-res PDF for slide use
+          finalBlob = new Blob([pdfBuffer], { type: 'application/pdf' });
           break;
       }
 

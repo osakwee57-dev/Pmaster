@@ -78,9 +78,9 @@ const ImageToPdfTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
 
   // Config States
   const [options, setOptions] = useState<Omit<AdvancedPdfOptions, 'onProgress'>>({
-    pageSize: 'a4',
+    pageSize: 'fit', // Default to 'fit' to avoid white borders
     orientation: 'p',
-    margin: 10,
+    margin: 0, // Default to 0 margin for scanned docs
     spacing: 0,
     quality: 'high',
     ocrEnabled: false
@@ -113,9 +113,9 @@ const ImageToPdfTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     setProgress(0);
     setStatus("");
     setOptions({
-      pageSize: 'a4',
+      pageSize: 'fit',
       orientation: 'p',
-      margin: 10,
+      margin: 0,
       spacing: 0,
       quality: 'high',
       ocrEnabled: false
@@ -172,7 +172,6 @@ const ImageToPdfTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Gallery / Editor Area */}
         <div className="lg:col-span-2 space-y-4">
           <div className="bg-white p-6 rounded-[2.5rem] shadow-xl border border-slate-100 min-h-[400px]">
              <div className="flex items-center justify-between mb-6">
@@ -209,7 +208,6 @@ const ImageToPdfTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
           </div>
         </div>
 
-        {/* Configuration Sidebar */}
         <div className="space-y-6">
           <div className="bg-white p-6 rounded-[2.5rem] shadow-xl border border-slate-100 space-y-6 sticky top-8">
             <div className="flex items-center space-x-2 mb-4">
@@ -217,7 +215,6 @@ const ImageToPdfTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                <h3 className="font-black text-sm uppercase tracking-wider">Engine Settings</h3>
             </div>
 
-            {/* General Info */}
             <div className="space-y-2">
               <label className="text-[9px] font-black uppercase tracking-widest text-slate-400 px-2">Output Name</label>
               <input 
@@ -229,7 +226,6 @@ const ImageToPdfTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
               />
             </div>
 
-            {/* Layout Options */}
             <div className="space-y-4">
                <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-2">
@@ -239,6 +235,7 @@ const ImageToPdfTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                        onChange={(e) => setOptions({...options, pageSize: e.target.value as any})}
                        className="w-full bg-slate-50 border-2 border-slate-50 rounded-xl px-4 py-3 text-xs font-bold outline-none focus:border-pink-500"
                      >
+                       <option value="fit">Fit Image (No Border)</option>
                        <option value="a4">A4 Standard</option>
                        <option value="letter">US Letter</option>
                        <option value="legal">US Legal</option>
@@ -267,7 +264,6 @@ const ImageToPdfTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                </div>
             </div>
 
-            {/* Quality Section */}
             <div className="pt-4 border-t border-slate-50 space-y-3">
                <div className="flex items-center space-x-2">
                   <Gauge className="w-4 h-4 text-slate-400" />
@@ -286,7 +282,6 @@ const ImageToPdfTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                </div>
             </div>
 
-            {/* OCR Toggle */}
             <div className="pt-4 border-t border-slate-50">
                <button 
                  onClick={() => setOptions({...options, ocrEnabled: !options.ocrEnabled})}
@@ -305,7 +300,6 @@ const ImageToPdfTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                </button>
             </div>
 
-            {/* Final Action */}
             <button 
               onClick={handleProcess}
               disabled={isProcessing || images.length === 0}
@@ -330,7 +324,6 @@ const ImageToPdfTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         </div>
       </div>
 
-      {/* Post-Processing Results / Extras */}
       {recognizedText && (
         <div className="bg-emerald-950 p-8 rounded-[3rem] text-white shadow-2xl space-y-6 animate-in fade-in duration-500">
            <div className="flex items-center justify-between border-b border-white/10 pb-4">
@@ -352,7 +345,6 @@ const ImageToPdfTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         </div>
       )}
 
-      {/* Modals */}
       {editingIndex !== null && (
         <ImageEditor 
           image={images[editingIndex]} 

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Camera, FileText, ImageIcon, ChevronRight, FileOutput, ShieldCheck, Zap, Cpu, Layers, History } from 'lucide-react';
+import { Camera, FileText, ImageIcon, ChevronRight, FileOutput, ShieldCheck, Zap, Cpu, Layers, History, Loader2 } from 'lucide-react';
 import ScannerTool from './components/ScannerTool';
 import TextToPdfTool from './components/TextToPdfTool';
 import ImageToPdfTool from './components/ImageToPdfTool';
@@ -12,13 +12,37 @@ import { ToolType, Draft } from './types';
 const App: React.FC = () => {
   const [activeTool, setActiveTool] = useState<ToolType | null>(null);
   const [resumedDraft, setResumedDraft] = useState<Draft | null>(null);
+  const [systemFile, setSystemFile] = useState<File | null>(null);
+  const [isLaunchingFile, setIsLaunchingFile] = useState(false);
+
+  // Handle System File Launch (PWA File Handling API)
+  useEffect(() => {
+    if ('launchQueue' in window) {
+      (window as any).launchQueue.setConsumer(async (launchParams: any) => {
+        if (launchParams.files && launchParams.files.length > 0) {
+          setIsLaunchingFile(true);
+          try {
+            const fileHandle = launchParams.files[0];
+            const file = await fileHandle.getFile();
+            if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
+              setSystemFile(file);
+              setActiveTool('edit');
+            }
+          } catch (err) {
+            console.error("Failed to handle launch file:", err);
+          } finally {
+            setIsLaunchingFile(false);
+          }
+        }
+      });
+    }
+  }, []);
 
   // Visibility logic for short-term session memory
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'hidden') {
-        // App backgrounded: Any "Low RAM" cleanup can happen here if needed
-        // but IndexedDB is persistent anyway.
+        // App backgrounded cleanup
       }
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -71,17 +95,37 @@ const App: React.FC = () => {
   const handleBack = () => {
     setActiveTool(null);
     setResumedDraft(null);
+    setSystemFile(null);
   };
 
   if (activeTool === 'scan') return <ScannerTool onBack={handleBack} initialData={resumedDraft?.data} draftId={resumedDraft?.id} />;
   if (activeTool === 'text') return <TextToPdfTool onBack={handleBack} initialData={resumedDraft?.data} draftId={resumedDraft?.id} />;
   if (activeTool === 'image') return <ImageToPdfTool onBack={handleBack} initialData={resumedDraft?.data} draftId={resumedDraft?.id} />;
-  if (activeTool === 'edit') return <EditPdfTool onBack={handleBack} initialData={resumedDraft?.data} draftId={resumedDraft?.id} />;
+  
+  if (activeTool === 'edit') {
+    return (
+      <EditPdfTool 
+        onBack={handleBack} 
+        initialData={resumedDraft?.data} 
+        draftId={resumedDraft?.id}
+        initialFile={systemFile || undefined} 
+      />
+    );
+  }
+
   if (activeTool === 'gs_compress') return <GhostscriptTool onBack={handleBack} />;
   if (activeTool === 'drafts') return <DraftsManager onBack={handleBack} onResume={handleResume} />;
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans selection:bg-blue-100">
+      {isLaunchingFile && (
+        <div className="fixed inset-0 z-[1000] bg-white flex flex-col items-center justify-center p-8 animate-in fade-in duration-500">
+          <Loader2 className="w-12 h-12 text-blue-600 animate-spin mb-4" />
+          <h2 className="text-xl font-black text-slate-900 uppercase tracking-widest">Opening System PDF</h2>
+          <p className="text-sm text-slate-400 font-bold mt-2">Initializing Local Parsing Engine...</p>
+        </div>
+      )}
+
       <header className="px-8 pt-16 pb-8">
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center space-x-3">

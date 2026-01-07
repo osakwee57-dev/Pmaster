@@ -9,7 +9,7 @@ import { Document, Packer, Paragraph, TextRun } from 'docx';
 // Initialize PDF.js worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://esm.sh/pdfjs-dist@4.10.38/build/pdf.worker.mjs';
 
-// Fix: Export downloadBlob for utility usage
+// Export downloadBlob for utility usage
 export const downloadBlob = (blob: Blob, filename: string) => {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -21,7 +21,7 @@ export const downloadBlob = (blob: Blob, filename: string) => {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 };
 
-// Fix: Export shareBlob for mobile sharing
+// Export shareBlob for mobile sharing
 export const shareBlob = async (blob: Blob, filename: string) => {
   if (navigator.share) {
     try {
@@ -40,7 +40,7 @@ export const shareBlob = async (blob: Blob, filename: string) => {
   }
 };
 
-// Fix: Export extractTextFromPdf for conversion tools
+// Export extractTextFromPdf for conversion tools
 export const extractTextFromPdf = async (buffer: ArrayBuffer, onProgress?: (msg: string) => void): Promise<{ fullText: string, pages: string[] }> => {
   const loadingTask = pdfjsLib.getDocument({ data: buffer });
   const pdf = await loadingTask.promise;
@@ -62,13 +62,13 @@ export const extractTextFromPdf = async (buffer: ArrayBuffer, onProgress?: (msg:
   return { fullText, pages };
 };
 
-// Fix: Export extractTextFromDocx for doc parser
+// Export extractTextFromDocx for doc parser
 export const extractTextFromDocx = async (buffer: ArrayBuffer): Promise<string> => {
   const result = await mammoth.extractRawText({ arrayBuffer: buffer });
   return result.value;
 };
 
-// Fix: Export generateDocxFromText for export functionality
+// Export generateDocxFromText for export functionality
 export const generateDocxFromText = async (text: string): Promise<Blob> => {
   const doc = new Document({
     sections: [{
@@ -83,7 +83,7 @@ export const generateDocxFromText = async (text: string): Promise<Blob> => {
   return new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
 };
 
-// Fix: Implement mergeHybridPdf to support PDF merging tool
+// Implement mergeHybridPdf to support PDF merging tool
 export const mergeHybridPdf = async (pageSpecs: any[]): Promise<Blob> => {
   const mergedPdf = await PDFDocument.create();
   for (const spec of pageSpecs) {
@@ -97,30 +97,47 @@ export const mergeHybridPdf = async (pageSpecs: any[]): Promise<Blob> => {
   return new Blob([mergedBytes], { type: 'application/pdf' });
 };
 
-// Fix: Implement generatePdfFromImages for the scanner tool
+// FIXED: generatePdfFromImages now creates pages that match image dimensions exactly.
+// This removes the white bars/borders caused by aspect ratio mismatch on standard A4 pages.
 export const generatePdfFromImages = async (images: string[]): Promise<Blob> => {
-  const doc = new jsPDF();
+  if (!images.length) return new Blob([], { type: 'application/pdf' });
+
+  // Use the first image to initialize the document settings
+  const tempDoc = new jsPDF();
+  const firstProps = tempDoc.getImageProperties(images[0]);
+  
+  const doc = new jsPDF({
+    orientation: firstProps.width > firstProps.height ? 'l' : 'p',
+    unit: 'px',
+    format: [firstProps.width, firstProps.height]
+  });
+
   for (let i = 0; i < images.length; i++) {
-    if (i > 0) doc.addPage();
     const img = images[i];
     const props = doc.getImageProperties(img);
-    const pdfWidth = doc.internal.pageSize.getWidth();
-    const pdfHeight = (props.height * pdfWidth) / props.width;
-    doc.addImage(img, 'JPEG', 0, 0, pdfWidth, pdfHeight);
+    
+    if (i > 0) {
+      // Add a page with the exact dimensions of the current image
+      doc.addPage([props.width, props.height], props.width > props.height ? 'l' : 'p');
+    }
+    
+    doc.addImage(img, 'JPEG', 0, 0, props.width, props.height);
   }
+  
   return doc.output('blob');
 };
 
-// Fix: Implement generatePdfFromMixedContent for Doc Builder tool
+// Implement generatePdfFromMixedContent for Doc Builder tool
 export const generatePdfFromMixedContent = async (blocks: any[]): Promise<Blob> => {
   const doc = new jsPDF();
   let cursorY = 10;
   const margin = 10;
   const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
   const usableWidth = pageWidth - 2 * margin;
 
   for (const block of blocks) {
-    if (cursorY > doc.internal.pageSize.getHeight() - 20) {
+    if (cursorY > pageHeight - 20) {
       doc.addPage();
       cursorY = 10;
     }
@@ -134,13 +151,23 @@ export const generatePdfFromMixedContent = async (blocks: any[]): Promise<Blob> 
       const imgWidth = usableWidth * ((block.widthPercent || 100) / 100);
       const imgHeight = (props.height * imgWidth) / props.width;
       
-      if (cursorY + imgHeight > doc.internal.pageSize.getHeight() - 10) {
-        doc.addPage();
-        cursorY = 10;
+      if (cursorY + imgHeight > pageHeight - 10) {
+        if (imgHeight > pageHeight - 20) {
+           const scale = (pageHeight - 20) / imgHeight;
+           const finalW = imgWidth * scale;
+           const finalH = imgHeight * scale;
+           doc.addPage();
+           doc.addImage(block.value, 'JPEG', margin, 10, finalW, finalH);
+           cursorY = finalH + 15;
+        } else {
+           doc.addPage();
+           doc.addImage(block.value, 'JPEG', margin, 10, imgWidth, imgHeight);
+           cursorY = imgHeight + 15;
+        }
+      } else {
+        doc.addImage(block.value, 'JPEG', margin, cursorY, imgWidth, imgHeight);
+        cursorY += imgHeight + 5;
       }
-      
-      doc.addImage(block.value, 'JPEG', margin, cursorY, imgWidth, imgHeight);
-      cursorY += imgHeight + 5;
     } else if (block.type === 'table') {
       const rows = block.data;
       const colWidth = usableWidth / block.cols;
@@ -158,7 +185,7 @@ export const generatePdfFromMixedContent = async (blocks: any[]): Promise<Blob> 
           currentX += cellWidth;
         }
         cursorY += maxRowHeight;
-        if (cursorY > doc.internal.pageSize.getHeight() - 20) {
+        if (cursorY > pageHeight - 20) {
           doc.addPage();
           cursorY = 10;
         }
@@ -168,9 +195,8 @@ export const generatePdfFromMixedContent = async (blocks: any[]): Promise<Blob> 
   return doc.output('blob');
 };
 
-// Fix: Define AdvancedPdfOptions interface for ImageToPdfTool
 export interface AdvancedPdfOptions {
-  pageSize: 'a4' | 'letter' | 'legal';
+  pageSize: 'a4' | 'letter' | 'legal' | 'fit';
   orientation: 'p' | 'l';
   margin: number;
   spacing: number;
@@ -179,12 +205,22 @@ export interface AdvancedPdfOptions {
   onProgress?: (progress: number, status: string) => void;
 }
 
-// Fix: Implement generateAdvancedPdfFromImages for the Photo Engine Pro tool
+// Implement generateAdvancedPdfFromImages with better edge-to-edge support
 export const generateAdvancedPdfFromImages = async (images: string[], options: AdvancedPdfOptions): Promise<{ blob: Blob, recognizedText: string }> => {
+  const isFit = options.pageSize === 'fit';
+  
+  // Use first image for initial setup if fitting
+  let initialFormat: any = options.pageSize;
+  if (isFit && images.length > 0) {
+    const tempDoc = new jsPDF();
+    const p = tempDoc.getImageProperties(images[0]);
+    initialFormat = [p.width, p.height];
+  }
+
   const doc = new jsPDF({
     orientation: options.orientation,
     unit: 'mm',
-    format: options.pageSize
+    format: initialFormat
   });
 
   let recognizedText = "";
@@ -194,8 +230,16 @@ export const generateAdvancedPdfFromImages = async (images: string[], options: A
     const status = `Processing page ${i + 1} of ${total}...`;
     options.onProgress?.(Math.round((i / total) * 100), status);
 
-    if (i > 0) doc.addPage();
     const img = images[i];
+    const props = doc.getImageProperties(img);
+
+    if (i > 0) {
+      if (isFit) {
+        doc.addPage([props.width, props.height], props.width > props.height ? 'l' : 'p');
+      } else {
+        doc.addPage(options.pageSize, options.orientation);
+      }
+    }
 
     if (options.ocrEnabled) {
       try {
@@ -208,22 +252,36 @@ export const generateAdvancedPdfFromImages = async (images: string[], options: A
       }
     }
 
-    const props = doc.getImageProperties(img);
-    const pdfWidth = doc.internal.pageSize.getWidth() - 2 * options.margin;
-    const pdfHeight = (props.height * pdfWidth) / props.width;
-    doc.addImage(img, 'JPEG', options.margin, options.margin, pdfWidth, pdfHeight);
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    
+    // Calculate usable area
+    const m = options.margin;
+    const usableWidth = pageWidth - 2 * m;
+    const usableHeight = pageHeight - 2 * m;
+    
+    const widthRatio = usableWidth / props.width;
+    const heightRatio = usableHeight / props.height;
+    const ratio = Math.min(widthRatio, heightRatio);
+    
+    const w = props.width * ratio;
+    const h = props.height * ratio;
+    
+    const x = m + (usableWidth - w) / 2;
+    const y = m + (usableHeight - h) / 2;
+    
+    doc.addImage(img, 'JPEG', x, y, w, h);
   }
 
   options.onProgress?.(100, "Finalizing...");
   return { blob: doc.output('blob'), recognizedText };
 };
 
-// Fix: Implement compressPdf for compression and shrinking tools
+// Implement compressPdf for compression and shrinking tools
 export const compressPdf = async (buffer: ArrayBuffer, preset?: string, onProgress?: (msg: string) => void): Promise<Blob> => {
   onProgress?.("Analyzing PDF structure...");
   const pdfDoc = await PDFDocument.load(buffer);
   onProgress?.("Optimizing object streams...");
-  // Basic optimization by re-saving with pdf-lib which cleans up dead objects
   const compressedBytes = await pdfDoc.save();
   return new Blob([compressedBytes], { type: 'application/pdf' });
 };
@@ -243,7 +301,7 @@ export interface ProcessOptions {
   };
 }
 
-// Fix: Completed the processImage function which was cut off in the previous version
+// The processImage function
 export const processImage = async (base64: string, options: ProcessOptions): Promise<string> => {
   return new Promise((resolve) => {
     const img = new Image();
