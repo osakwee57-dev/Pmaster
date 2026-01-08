@@ -97,12 +97,10 @@ export const mergeHybridPdf = async (pageSpecs: any[]): Promise<Blob> => {
   return new Blob([mergedBytes], { type: 'application/pdf' });
 };
 
-// FIXED: generatePdfFromImages now creates pages that match image dimensions exactly.
-// This removes the white bars/borders caused by aspect ratio mismatch on standard A4 pages.
+// generatePdfFromImages creates pages that match image dimensions exactly.
 export const generatePdfFromImages = async (images: string[]): Promise<Blob> => {
   if (!images.length) return new Blob([], { type: 'application/pdf' });
 
-  // Use the first image to initialize the document settings
   const tempDoc = new jsPDF();
   const firstProps = tempDoc.getImageProperties(images[0]);
   
@@ -117,7 +115,6 @@ export const generatePdfFromImages = async (images: string[]): Promise<Blob> => 
     const props = doc.getImageProperties(img);
     
     if (i > 0) {
-      // Add a page with the exact dimensions of the current image
       doc.addPage([props.width, props.height], props.width > props.height ? 'l' : 'p');
     }
     
@@ -127,69 +124,98 @@ export const generatePdfFromImages = async (images: string[]): Promise<Blob> => 
   return doc.output('blob');
 };
 
-// Implement generatePdfFromMixedContent for Doc Builder tool
+// FIXED: generatePdfFromMixedContent now implements line-by-line text rendering
+// to ensure text blocks that span multiple pages are paginated correctly.
 export const generatePdfFromMixedContent = async (blocks: any[]): Promise<Blob> => {
   const doc = new jsPDF();
-  let cursorY = 10;
-  const margin = 10;
+  let cursorY = 20; // Start with a bit of top margin
+  const margin = 20;
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
   const usableWidth = pageWidth - 2 * margin;
+  const lineHeight = 7;
 
   for (const block of blocks) {
-    if (cursorY > pageHeight - 20) {
+    // Check if we need a new page before starting a new block
+    if (cursorY > pageHeight - margin) {
       doc.addPage();
-      cursorY = 10;
+      cursorY = margin;
     }
 
     if (block.type === 'text') {
       const lines = doc.splitTextToSize(block.value || '', usableWidth);
-      doc.text(lines, margin, cursorY);
-      cursorY += lines.length * 7 + 5;
+      
+      for (const line of lines) {
+        // If the next line would exceed the page bottom, create a new page
+        if (cursorY + lineHeight > pageHeight - margin) {
+          doc.addPage();
+          cursorY = margin;
+        }
+        doc.text(line, margin, cursorY);
+        cursorY += lineHeight;
+      }
+      cursorY += 5; // Spacing after block
     } else if (block.type === 'image') {
       const props = doc.getImageProperties(block.value);
       const imgWidth = usableWidth * ((block.widthPercent || 100) / 100);
       const imgHeight = (props.height * imgWidth) / props.width;
       
-      if (cursorY + imgHeight > pageHeight - 10) {
-        if (imgHeight > pageHeight - 20) {
-           const scale = (pageHeight - 20) / imgHeight;
+      // If the image is taller than the remaining page space
+      if (cursorY + imgHeight > pageHeight - margin) {
+        // If image itself is taller than a whole page, scale it to fit the page
+        if (imgHeight > pageHeight - 2 * margin) {
+           const scale = (pageHeight - 2 * margin) / imgHeight;
            const finalW = imgWidth * scale;
            const finalH = imgHeight * scale;
            doc.addPage();
-           doc.addImage(block.value, 'JPEG', margin, 10, finalW, finalH);
-           cursorY = finalH + 15;
+           doc.addImage(block.value, 'JPEG', margin + (usableWidth - finalW) / 2, margin, finalW, finalH);
+           cursorY = margin + finalH + 10;
         } else {
            doc.addPage();
-           doc.addImage(block.value, 'JPEG', margin, 10, imgWidth, imgHeight);
-           cursorY = imgHeight + 15;
+           doc.addImage(block.value, 'JPEG', margin + (usableWidth - imgWidth) / 2, margin, imgWidth, imgHeight);
+           cursorY = margin + imgHeight + 10;
         }
       } else {
-        doc.addImage(block.value, 'JPEG', margin, cursorY, imgWidth, imgHeight);
-        cursorY += imgHeight + 5;
+        doc.addImage(block.value, 'JPEG', margin + (usableWidth - imgWidth) / 2, cursorY, imgWidth, imgHeight);
+        cursorY += imgHeight + 10;
       }
     } else if (block.type === 'table') {
       const rows = block.data;
       const colWidth = usableWidth / block.cols;
-      doc.setFontSize(8);
+      doc.setFontSize(10);
+      
       for (const row of rows) {
+        // Calculate max height for this row first
         let maxRowHeight = 5;
+        for (const cell of row) {
+          if (cell.mergedInto) continue;
+          const cellWidth = colWidth * (cell.colSpan || 1);
+          const lines = doc.splitTextToSize(cell.content || '', cellWidth - 2);
+          const h = lines.length * 5 + 4;
+          if (h > maxRowHeight) maxRowHeight = h;
+        }
+
+        // Check if row fits on current page
+        if (cursorY + maxRowHeight > pageHeight - margin) {
+          doc.addPage();
+          cursorY = margin;
+        }
+
         let currentX = margin;
         for (const cell of row) {
           if (cell.mergedInto) continue;
           const cellWidth = colWidth * (cell.colSpan || 1);
           const lines = doc.splitTextToSize(cell.content || '', cellWidth - 2);
-          doc.rect(currentX, cursorY, cellWidth, lines.length * 4 + 2);
-          doc.text(lines, currentX + 1, cursorY + 3);
-          maxRowHeight = Math.max(maxRowHeight, lines.length * 4 + 2);
+          
+          // Draw cell border and text
+          doc.rect(currentX, cursorY, cellWidth, maxRowHeight);
+          doc.text(lines, currentX + 1, cursorY + 4);
+          
           currentX += cellWidth;
         }
         cursorY += maxRowHeight;
-        if (cursorY > pageHeight - 20) {
-          doc.addPage();
-          cursorY = 10;
-        }
       }
+      cursorY += 10; // Spacing after table
     }
   }
   return doc.output('blob');
@@ -209,7 +235,6 @@ export interface AdvancedPdfOptions {
 export const generateAdvancedPdfFromImages = async (images: string[], options: AdvancedPdfOptions): Promise<{ blob: Blob, recognizedText: string }> => {
   const isFit = options.pageSize === 'fit';
   
-  // Use first image for initial setup if fitting
   let initialFormat: any = options.pageSize;
   if (isFit && images.length > 0) {
     const tempDoc = new jsPDF();
@@ -255,7 +280,6 @@ export const generateAdvancedPdfFromImages = async (images: string[], options: A
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
     
-    // Calculate usable area
     const m = options.margin;
     const usableWidth = pageWidth - 2 * m;
     const usableHeight = pageHeight - 2 * m;
